@@ -9,8 +9,8 @@ echo " Running All OpenSSL s_server Tester Test Suites"
 echo "=========================================================="
 
 echo ""
-echo "--> 1. Running test_seed_keys.sh..."
-"$SCRIPT_DIR/test_seed_keys.sh"
+echo "--> 1. Running test_scalar_s_bytes.sh..."
+"$SCRIPT_DIR/test_scalar_s_bytes.sh"
 
 echo ""
 echo "--> 2. Running test_chain_generation.sh..."

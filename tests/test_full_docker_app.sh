@@ -5,10 +5,10 @@ set -euo pipefail
 echo "=== Building ephemeral Docker image s-server-tester:test ==="
 docker build -t s-server-tester:test .
 
-echo "=== Test 1: Run with integer seed 42 in -WWW mode ==="
+echo "=== Test 1: Run with integer scalar s=42 in -WWW mode ==="
 CONTAINER_ID=$(docker run -d \
     -p 4433:4433 \
-    -e SEED="42" \
+    -e S_BYTES="42" \
     -e DOMAINS="test1.local,s-server.internal" \
     -e IPS="127.0.0.1,10.1.2.3" \
     s-server-tester:test)
@@ -21,7 +21,7 @@ trap cleanup_container EXIT
 
 sleep 2
 echo "Checking container logs:"
-docker logs "$CONTAINER_ID" | head -n 25
+docker logs "$CONTAINER_ID" | head -n 35
 
 echo "Testing curl /index.html..."
 RESP=$(curl -k -s https://127.0.0.1:4433/index.html)
@@ -33,10 +33,11 @@ else
     exit 1
 fi
 
-if echo "$RESP" | grep -q "openssl ecparam"; then
-    echo "SUCCESS: Found executed openssl ecparam commands in HTML"
+# Verify exact scalar 42 (0x2a) appears in HTML decoded private key
+if echo "$RESP" | grep -qi "00:2a"; then
+    echo "SUCCESS: Found exact scalar 00:2a in HTML decoded EC private key!"
 else
-    echo "ERROR: Missing openssl ecparam command in HTML"
+    echo "ERROR: Missing 00:2a in HTML report"
     exit 1
 fi
 
@@ -59,12 +60,12 @@ fi
 cleanup_container
 trap - EXIT
 
-echo "=== Test 2: Run with hex string seed and custom curves in -WWW mode ==="
+echo "=== Test 2: Run with hex scalar s=0xdeadbeef1337 and custom curve ==="
 CONTAINER_ID=$(docker run -d \
     -p 4434:4433 \
-    -e SEED_BYTES="0xabcdef0123456789" \
-    -e CA_CURVE="secp384r1" \
+    -e S_BYTES="0xdeadbeef1337" \
     -e SERVER_CURVE="prime256v1" \
+    -e CA_CURVE="prime256v1" \
     -e WWW_MODE="WWW" \
     s-server-tester:test)
 
@@ -72,10 +73,13 @@ trap cleanup_container EXIT
 sleep 2
 
 RESP=$(curl -k -s https://127.0.0.1:4434/index.html)
-if echo "$RESP" | grep -q "secp384r1"; then
-    echo "SUCCESS: Found custom curve secp384r1 in HTML report"
+
+# Check that dead:beef:13:37 is displayed in the HTML output of openssl ec -text
+CLEAN_RESP=$(echo "$RESP" | tr -d ' \n\t:')
+if echo "$CLEAN_RESP" | grep -qi "deadbeef1337"; then
+    echo "SUCCESS: Found exact user hex scalar deadbeef1337 in HTML report under openssl ec -text!"
 else
-    echo "ERROR: Missing custom curve in HTML report"
+    echo "ERROR: Missing user hex scalar deadbeef1337 in HTML report"
     exit 1
 fi
 

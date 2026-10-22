@@ -38,8 +38,55 @@ CERTS_DIR="${CERTS_DIR:-/certs}"
 # Extra s_server arguments
 EXTRA_S_SERVER_ARGS="${EXTRA_S_SERVER_ARGS:-}"
 
-# Seed input from CLI argument $1 or env var
-SEED_INPUT="${1:-${SEED_BYTES:-${SEED:-}}}"
+# Scalar "s" bytes or seed input from CLI argument $1 or env vars
+S_BYTES_INPUT="${1:-${S_BYTES:-${SERVER_S_BYTES:-${SEED_BYTES:-${SEED:-}}}}}"
+CA_S_BYTES_INPUT="${CA_S_BYTES:-}"
+
+# ------------------------------------------------------------------------------
+# Helper Functions for EC Scalars ("s" bytes)
+# ------------------------------------------------------------------------------
+get_curve_bytes() {
+    local curve="$1"
+    case "$curve" in
+        prime256v1|secp256r1|P-256) echo 32 ;;
+        secp384r1|P-384) echo 48 ;;
+        secp521r1|P-521) echo 66 ;;
+        *) echo 32 ;;
+    esac
+}
+
+format_scalar() {
+    local input="$1"
+    local target_bytes="$2"
+    local target_chars=$((target_bytes * 2))
+    
+    local clean="${input#0x}"
+    clean="${clean#0X}"
+    
+    if [[ "$input" =~ ^[0-9]+$ ]] && [ ${#input} -lt 16 ]; then
+        clean=$(printf "%x" "$input")
+    fi
+    
+    while [ ${#clean} -lt $target_chars ]; do
+        clean="00$clean"
+    done
+    if [ ${#clean} -gt $target_chars ]; then
+        clean="${clean: -$target_chars}"
+    fi
+    echo "$clean"
+}
+
+derive_partner_scalar() {
+    local hex="$1"
+    local prefix="${hex:0:${#hex}-2}"
+    local last_byte="${hex: -2}"
+    local last_int=$(( 16#$last_byte ))
+    local next_int=$(( (last_int + 1) % 256 ))
+    if [ $next_int -eq 0 ]; then
+        next_int=1
+    fi
+    printf "%s%02x" "$prefix" "$next_int"
+}
 
 # ------------------------------------------------------------------------------
 # Logging & Command Tracking
@@ -61,7 +108,6 @@ run_recorded() {
     echo "+ $cmd"
     echo "$cmd" >> "$COMMAND_LOG_FILE"
     
-    # Execute command and capture output
     local output
     output=$(eval "$cmd" 2>&1)
     local ret=$?
@@ -86,11 +132,9 @@ echo "Serve Directory:  $SERVE_DIR"
 echo "Volume Dir:       $CERTS_DIR"
 echo "==================================================================="
 
-# Default seed info
+# Default metadata
 SEED_TYPE="Random (OS entropy)"
 SEED_DISPLAY="Auto-generated random"
-SEED_FILE="$SERVE_DIR/seed.bin"
-RAND_ARG=""
 
 # ------------------------------------------------------------------------------
 # Check for Mounted Volume Certificates
@@ -128,61 +172,79 @@ if [ -n "$MOUNTED_CHAIN" ] && [ -n "$MOUNTED_KEY" ]; then
     run_recorded "Verify certificate format" "openssl x509 -in '$SERVE_DIR/fullchain.pem' -noout -subject -issuer -dates"
 else
     # --------------------------------------------------------------------------
-    # Deterministic / Seeded Key & Cert Generation
+    # Deterministic / Exact "s" Bytes EC Key Generation
     # --------------------------------------------------------------------------
-    SEED_TYPE="Random (OS entropy)"
-    SEED_DISPLAY="Auto-generated random"
-    SEED_FILE="$SERVE_DIR/seed.bin"
-    RAND_ARG=""
-
-    if [ -n "$SEED_INPUT" ]; then
-        # Check if input is hex string or integer
-        CLEAN_HEX=$(echo "$SEED_INPUT" | sed -E 's/^0[xX]//')
-        if [[ "$SEED_INPUT" =~ ^[0-9]+$ ]] && [ ${#SEED_INPUT} -lt 16 ]; then
-            SEED_TYPE="Small Integer ($SEED_INPUT)"
-            SEED_DISPLAY="Integer: $SEED_INPUT"
-            echo ">> Processing seed as small integer: $SEED_INPUT"
-            # Convert integer to 8-byte hex representation, then expand using SHA-256 for OpenSSL PRNG
-            printf "%016x" "$SEED_INPUT" | xxd -r -p > "$SEED_FILE.raw"
-            openssl dgst -sha256 -binary "$SEED_FILE.raw" > "$SEED_FILE"
-            RAND_ARG="-rand $SEED_FILE"
-        elif [[ "$CLEAN_HEX" =~ ^[0-9a-fA-F]+$ ]]; then
-            SEED_TYPE="Hex String ($SEED_INPUT)"
-            SEED_DISPLAY="Hex: $SEED_INPUT"
-            echo ">> Processing seed as hex string: $SEED_INPUT"
-            # Ensure even number of hex characters
-            if [ $(( ${#CLEAN_HEX} % 2 )) -ne 0 ]; then
-                CLEAN_HEX="0${CLEAN_HEX}"
-            fi
-            echo "$CLEAN_HEX" | xxd -r -p > "$SEED_FILE.raw"
-            openssl dgst -sha256 -binary "$SEED_FILE.raw" > "$SEED_FILE"
-            RAND_ARG="-rand $SEED_FILE"
+    if [ -n "$S_BYTES_INPUT" ]; then
+        SERVER_BYTES_LEN=$(get_curve_bytes "$SERVER_CURVE")
+        CA_BYTES_LEN=$(get_curve_bytes "$CA_CURVE")
+        
+        SERVER_SCALAR=$(format_scalar "$S_BYTES_INPUT" "$SERVER_BYTES_LEN")
+        if [ -n "$CA_S_BYTES_INPUT" ]; then
+            CA_SCALAR=$(format_scalar "$CA_S_BYTES_INPUT" "$CA_BYTES_LEN")
         else
-            SEED_TYPE="Custom String ($SEED_INPUT)"
-            SEED_DISPLAY="String: $SEED_INPUT"
-            echo ">> Processing seed as raw string: $SEED_INPUT"
-            printf "%s" "$SEED_INPUT" | openssl dgst -sha256 -binary > "$SEED_FILE"
-            RAND_ARG="-rand $SEED_FILE"
+            CA_SCALAR=$(derive_partner_scalar "$SERVER_SCALAR")
         fi
+        
+        SEED_TYPE="Exact Scalar 's' Bytes"
+        SEED_DISPLAY="Server s: 0x$SERVER_SCALAR (CA s: 0x$CA_SCALAR)"
+        echo ">> Configured EC scalar 's' bytes:"
+        echo "   Server Key scalar: 0x$SERVER_SCALAR"
+        echo "   CA Key scalar:     0x$CA_SCALAR"
+        
+        # 1. Generate CA Private Key from scalar ASN.1
+        CA_ASN1_CNF="$SERVE_DIR/asn1_ca.cnf"
+        cat > "$CA_ASN1_CNF" <<EOF
+asn1 = SEQUENCE:ec_key
+
+[ec_key]
+version = INTEGER:1
+privkey = FORMAT:HEX,OCTETSTRING:$CA_SCALAR
+params = EXPLICIT:0,OBJECT:$CA_CURVE
+EOF
+        run_recorded "Create CA EC Private Key ASN.1 Configuration" "cat '$CA_ASN1_CNF'"
+        run_recorded "Encode CA EC Private Key DER from scalar ASN.1" "openssl asn1parse -genconf '$CA_ASN1_CNF' -out '$SERVE_DIR/ca_raw.der'"
+        run_recorded "Package CA EC Private Key to PEM" "echo '-----BEGIN EC PRIVATE KEY-----' > '$SERVE_DIR/ca.key.pem' && openssl base64 -in '$SERVE_DIR/ca_raw.der' >> '$SERVE_DIR/ca.key.pem' && echo '-----END EC PRIVATE KEY-----' >> '$SERVE_DIR/ca.key.pem'"
+        rm -f "$SERVE_DIR/ca_raw.der"
+        run_recorded "Inspect CA EC Private Key (shows exact scalar hex in priv:)" "openssl ec -in '$SERVE_DIR/ca.key.pem' -text -noout"
+        
+        # 2. Generate Server Private Key from scalar ASN.1
+        SERVER_ASN1_CNF="$SERVE_DIR/asn1_server.cnf"
+        cat > "$SERVER_ASN1_CNF" <<EOF
+asn1 = SEQUENCE:ec_key
+
+[ec_key]
+version = INTEGER:1
+privkey = FORMAT:HEX,OCTETSTRING:$SERVER_SCALAR
+params = EXPLICIT:0,OBJECT:$SERVER_CURVE
+EOF
+        run_recorded "Create Server EC Private Key ASN.1 Configuration" "cat '$SERVER_ASN1_CNF'"
+        run_recorded "Encode Server EC Private Key DER from scalar ASN.1" "openssl asn1parse -genconf '$SERVER_ASN1_CNF' -out '$SERVE_DIR/server_raw.der'"
+        run_recorded "Package Server EC Private Key to PEM" "echo '-----BEGIN EC PRIVATE KEY-----' > '$SERVE_DIR/server.key.pem' && openssl base64 -in '$SERVE_DIR/server_raw.der' >> '$SERVE_DIR/server.key.pem' && echo '-----END EC PRIVATE KEY-----' >> '$SERVE_DIR/server.key.pem'"
+        rm -f "$SERVE_DIR/server_raw.der"
+        run_recorded "Inspect Server EC Private Key (shows exact scalar hex in priv:)" "openssl ec -in '$SERVE_DIR/server.key.pem' -text -noout"
+    else
+        # Fallback: Generate keys using OpenSSL PRNG
+        echo ">> Generating EC keys using OpenSSL PRNG"
+        run_recorded "Generate CA EC Private Key (curve: $CA_CURVE)" \
+            "openssl ecparam -name '$CA_CURVE' -genkey -noout -out '$SERVE_DIR/ca.key.pem'"
+        run_recorded "Inspect CA EC Private Key" \
+            "openssl ec -in '$SERVE_DIR/ca.key.pem' -text -noout"
+            
+        run_recorded "Generate Server EC Private Key (curve: $SERVER_CURVE)" \
+            "openssl ecparam -name '$SERVER_CURVE' -genkey -noout -out '$SERVE_DIR/server.key.pem'"
+        run_recorded "Inspect Server EC Private Key" \
+            "openssl ec -in '$SERVE_DIR/server.key.pem' -text -noout"
     fi
 
-    # Step 1: Generate CA Private Key
-    run_recorded "Generate CA EC Private Key (curve: $CA_CURVE)" \
-        "openssl ecparam -name $CA_CURVE -genkey -noout $RAND_ARG -out $SERVE_DIR/ca.key.pem"
-
-    # Step 2: Generate CA Self-Signed Root Certificate
+    # Generate CA Self-Signed Root Certificate
     run_recorded "Generate CA Self-Signed Root Certificate" \
-        "openssl req -new -x509 -key $SERVE_DIR/ca.key.pem -out $SERVE_DIR/ca.crt.pem -days $CA_DAYS -subj '$CA_SUBJECT' -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign'"
+        "openssl req -new -x509 -key '$SERVE_DIR/ca.key.pem' -out '$SERVE_DIR/ca.crt.pem' -days '$CA_DAYS' -subj '$CA_SUBJECT' -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign'"
 
-    # Step 3: Generate Server Private Key
-    run_recorded "Generate Server EC Private Key (curve: $SERVER_CURVE)" \
-        "openssl ecparam -name $SERVER_CURVE -genkey -noout $RAND_ARG -out $SERVE_DIR/server.key.pem"
-
-    # Step 4: Generate Server CSR (Certificate Signing Request)
+    # Generate Server CSR (Certificate Signing Request)
     run_recorded "Generate Server Certificate Signing Request (CSR)" \
-        "openssl req -new -key $SERVE_DIR/server.key.pem -out $SERVE_DIR/server.csr.pem -subj '$SERVER_SUBJECT'"
+        "openssl req -new -key '$SERVE_DIR/server.key.pem' -out '$SERVE_DIR/server.csr.pem' -subj '$SERVER_SUBJECT'"
 
-    # Step 5: Build SAN Configuration File
+    # Build SAN Configuration File
     EXT_FILE="$SERVE_DIR/san.cnf"
     cat > "$EXT_FILE" <<EOF
 basicConstraints = CA:FALSE
@@ -213,27 +275,27 @@ EOF
         fi
     done
 
-    run_recorded "Create SAN Extensions Configuration" "cat $EXT_FILE"
+    run_recorded "Create SAN Extensions Configuration" "cat '$EXT_FILE'"
 
-    # Step 6: Sign Server Certificate with CA
+    # Sign Server Certificate with CA
     run_recorded "Sign Server Certificate with CA" \
-        "openssl x509 -req -in $SERVE_DIR/server.csr.pem -CA $SERVE_DIR/ca.crt.pem -CAkey $SERVE_DIR/ca.key.pem -CAcreateserial -out $SERVE_DIR/server.crt.pem -days $SERVER_DAYS -extfile $EXT_FILE"
+        "openssl x509 -req -in '$SERVE_DIR/server.csr.pem' -CA '$SERVE_DIR/ca.crt.pem' -CAkey '$SERVE_DIR/ca.key.pem' -CAcreateserial -out '$SERVE_DIR/server.crt.pem' -days '$SERVER_DAYS' -extfile '$EXT_FILE'"
 
-    # Step 7: Create Full Certificate Chain
+    # Assemble Full Certificate Chain
     run_recorded "Assemble Certificate Chain (server.crt + ca.crt)" \
-        "cat $SERVE_DIR/server.crt.pem $SERVE_DIR/ca.crt.pem > $SERVE_DIR/fullchain.pem"
+        "cat '$SERVE_DIR/server.crt.pem' '$SERVE_DIR/ca.crt.pem' > '$SERVE_DIR/fullchain.pem'"
 
-    # Step 8: Verify Certificate Chain
+    # Verify Certificate Chain
     run_recorded "Verify Server Certificate with CA Certificate" \
-        "openssl verify -CAfile $SERVE_DIR/ca.crt.pem $SERVE_DIR/server.crt.pem"
+        "openssl verify -CAfile '$SERVE_DIR/ca.crt.pem' '$SERVE_DIR/server.crt.pem'"
     run_recorded "Verify Full Chain with CA Certificate" \
-        "openssl verify -CAfile $SERVE_DIR/ca.crt.pem $SERVE_DIR/fullchain.pem"
+        "openssl verify -CAfile '$SERVE_DIR/ca.crt.pem' '$SERVE_DIR/fullchain.pem'"
 
-    # Step 9: Decode Certificate Details for HTML
+    # Decode Certificate Details
     run_recorded "Decode Server Certificate Details" \
-        "openssl x509 -in $SERVE_DIR/server.crt.pem -noout -text"
+        "openssl x509 -in '$SERVE_DIR/server.crt.pem' -noout -text"
     run_recorded "Decode CA Certificate Details" \
-        "openssl x509 -in $SERVE_DIR/ca.crt.pem -noout -text"
+        "openssl x509 -in '$SERVE_DIR/ca.crt.pem' -noout -text"
 fi
 
 # ------------------------------------------------------------------------------
@@ -422,7 +484,7 @@ cat > "$HTML_OUTPUT_FILE" <<'HTML_HEADER'
         <div class="card-value">-__WWW_MODE__ (Port __PORT__)</div>
       </div>
       <div class="card">
-        <div class="card-title">Entropy / Seed</div>
+        <div class="card-title">Entropy / Scalar "s"</div>
         <div class="card-value">__SEED_DISPLAY__</div>
       </div>
       <div class="card">
@@ -447,6 +509,7 @@ cat > "$HTML_OUTPUT_FILE" <<'HTML_HEADER'
     <div class="files-list">
       <a class="file-link" href="fullchain.pem" download>&#128196; fullchain.pem</a>
       <a class="file-link" href="server.crt.pem" download>&#128196; server.crt.pem</a>
+      <a class="file-link" href="server.key.pem" download>&#128196; server.key.pem</a>
       <a class="file-link" href="ca.crt.pem" download>&#128196; ca.crt.pem</a>
       <a class="file-link" href="server.csr.pem" download>&#128196; server.csr.pem</a>
       <a class="file-link" href="san.cnf" download>&#128196; san.cnf</a>
@@ -531,7 +594,6 @@ echo "==================================================================="
 echo " Launching openssl s_server on port $PORT with -$WWW_MODE"
 echo "==================================================================="
 
-# Build s_server options
 S_SERVER_CMD=(
     openssl s_server
     -accept "$PORT"

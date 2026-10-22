@@ -9,45 +9,55 @@ It generates a two-tier Elliptic Curve (EC) certificate chain (CA + Server), sig
 ## Features
 
 - **Dynamic EC Key & Chain Generation**: Generates a CA key & certificate, a server key & CSR, signs the server certificate using the CA with Subject Alternative Names (SANs), and bundles them into `fullchain.pem`.
-- **Flexible Entropy/Seed Input**: Accepts a small integer (e.g. `42`) or a hex string (e.g. `0xdeadbeef` or `deadbeef...`) as seed bytes for reproducible testing.
+- **Exact Scalar `s` Bytes Input**: Directly accepts an EC private key scalar $s$ as a hex string (e.g., `0xdeadbeef1337` or `deadbeef...`) or small integer (e.g., `42`), embedding the exact hex scalar into the generated EC private key so that `openssl ec -text` displays your exact bytes under `priv:`.
 - **Configurable via Environment Variables**:
+  - Scalars: `S_BYTES`, `SERVER_S_BYTES`, `CA_S_BYTES`.
   - Curves: `CA_CURVE`, `SERVER_CURVE`, or fallback `CURVE` (e.g., `prime256v1`, `secp384r1`, `secp521r1`).
   - Subjects: `CA_SUBJECT` and `SERVER_SUBJECT`.
   - SANs: `DOMAINS` and `IPS` (comma or space separated).
   - Modes: `WWW_MODE` (`WWW`, `www`, `HTTP`).
   - Ports: `PORT` (default `4433`).
 - **Mounted Volume Support**: Automatically detects if pre-existing certificate chains (e.g., `fullchain.pem`, `tls.crt`) and private keys are mounted to `/certs`, serving those instead.
-- **Interactive HTML Audit Page**: Echoes all commands executed with exit codes, parameters, and decoded certificate details (`openssl x509 -text -noout`). In `-WWW` mode, visiting `https://<host>:<port>/index.html` renders this full report with one-click PEM file downloads.
+- **Interactive HTML Audit Page**: Echoes all commands executed with exit codes, parameters, and decoded certificate details (`openssl x509 -text -noout` and `openssl ec -text -noout`). In `-WWW` mode, visiting `https://<host>:<port>/index.html` renders this full report with one-click PEM file downloads.
 - **Helm Chart & ArgoCD Integration**: Production-ready Helm chart (`chart/`) and ArgoCD Application (`argocd/`) matching Gitea CI/CD pipelines.
 
 ---
 
 ## Quick Start
 
-### 1. Run with Default Settings (Random Entropy)
-
-```bash
-docker run -p 4433:4433 git.tower.jskw.dev/webapps/s-server-tester:latest
-```
-
-### 2. Run with Integer Seed
+### 1. Run with Custom Scalar `s` Bytes (Hex)
 
 ```bash
 docker run -p 4433:4433 \
-  -e SEED="42" \
+  -e S_BYTES="0xdeadbeef1337" \
+  s-server-tester:latest
+```
+When running `openssl ec -in server.key.pem -text -noout`, the private key scalar displays:
+```text
+priv:
+    00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:
+    00:00:00:00:00:00:00:00:00:00:00:de:ad:be:ef:
+    13:37
+```
+
+### 2. Run with Integer Scalar `s`
+
+```bash
+docker run -p 4433:4433 \
+  -e S_BYTES="42" \
   -e DOMAINS="localhost,test.internal" \
   -e IPS="127.0.0.1,192.168.1.100" \
   s-server-tester:latest
 ```
 
-### 3. Run with Hex Seed and Custom Curves
+### 3. Run with Independent CA and Server Scalars
 
 ```bash
 docker run -p 4433:4433 \
-  -e SEED_BYTES="0xdeadbeef01020304" \
-  -e CA_CURVE="secp384r1" \
+  -e SERVER_S_BYTES="0xdeadbeef" \
+  -e CA_S_BYTES="0x1337c0de" \
+  -e CA_CURVE="prime256v1" \
   -e SERVER_CURVE="prime256v1" \
-  -e SERVER_SUBJECT="/CN=my-service.local/O=Testing/C=US" \
   s-server-tester:latest
 ```
 
