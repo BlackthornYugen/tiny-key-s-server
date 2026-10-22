@@ -1,0 +1,101 @@
+name: Build and Publish to Gitea
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Debug DNS (cat /etc/hosts)
+        run: cat /etc/hosts
+
+      - name: Log in to Gitea Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: git.tower.jskw.dev
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USERNAME || github.repository_owner }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Compute version and SHA
+        id: version
+        run: |
+          echo "version=$(git describe --tags --always --dirty)" >> "$GITHUB_OUTPUT"
+          
+          # For PRs, github.sha is the merge commit, but ArgoCD looks for the head commit.
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare Docker build tags
+        id: prep
+        run: |
+          GITEA_IMAGE="git.tower.jskw.dev/${{ github.repository }}"
+          GHCR_IMAGE="ghcr.io/blackthornyugen/$(basename ${{ github.repository }})"
+          
+          # Convert to lowercase
+          GITEA_IMAGE=$(echo "$GITEA_IMAGE" | tr '[:upper:]' '[:lower:]')
+          GHCR_IMAGE=$(echo "$GHCR_IMAGE" | tr '[:upper:]' '[:lower:]')
+          
+          # Build tag list based on event / ref
+          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            # On tag push, push to both Gitea and GHCR (including sha tags so ArgoCD commit SHA deployment works)
+            echo "${GITEA_IMAGE}:${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "${GITEA_IMAGE}:${{ steps.version.outputs.sha }}" >> "$GITHUB_OUTPUT"
+            echo "${GITEA_IMAGE}:latest" >> "$GITHUB_OUTPUT"
+            echo "${GHCR_IMAGE}:${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "${GHCR_IMAGE}:${{ steps.version.outputs.sha }}" >> "$GITHUB_OUTPUT"
+            echo "${GHCR_IMAGE}:latest" >> "$GITHUB_OUTPUT"
+          else
+            # On branch / PR push, push only to Gitea
+            echo "${GITEA_IMAGE}:dev" >> "$GITHUB_OUTPUT"
+            echo "${GITEA_IMAGE}:${{ steps.version.outputs.sha }}" >> "$GITHUB_OUTPUT"
+            echo "${GITEA_IMAGE}:${{ steps.version.outputs.version }}" >> "$GITHUB_OUTPUT"
+            if [ "${{ github.ref_name }}" = "main" ]; then
+              echo "${GITEA_IMAGE}:latest" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          provenance: false
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            REPO_URL=${{ github.server_url }}/${{ github.repository }}
+          tags: ${{ steps.prep.outputs.tags }}

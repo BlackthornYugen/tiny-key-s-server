@@ -1,0 +1,64 @@
+image:
+  repository: git.tower.jskw.dev/webapps/s-server-tester
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 443
+  targetPort: 4433
+
+ingress:
+  enabled: true
+  className: "haproxy"
+  annotations:
+    haproxy.org/server-ssl: "true"
+    haproxy.org/ssl-passthrough: "false"
+  # Array of domains for the ingress
+  hosts:
+    - s-server.jskw.dev
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# Mount external certificate fullchain if provided
+persistence:
+  enabled: false
+  # existingClaim: ""
+  # storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  mountPath: /certs
+
+probes:
+  liveness:
+    enabled: true
+    path: /index.html
+    scheme: HTTPS
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  readiness:
+    enabled: true
+    path: /index.html
+    scheme: HTTPS
+    initialDelaySeconds: 3
+    periodSeconds: 5
+
+# OpenSSL s_server configuration
+env:
+  SEED: ""
+  WWW_MODE: "WWW"
+  CA_CURVE: "prime256v1"
+  SERVER_CURVE: "prime256v1"
+  CA_SUBJECT: "/CN=Test OpenSSL CA/O=Test Lab/C=US"
+  SERVER_SUBJECT: "/CN=localhost/O=Test Lab/C=US"
+  DOMAINS: "localhost,s-server.jskw.dev"
+  IPS: "127.0.0.1"

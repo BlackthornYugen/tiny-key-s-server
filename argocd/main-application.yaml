@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: s-server-tester-main
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://git.tower.jskw.dev/webapps/s-server-tester.git
+    path: ./chart
+    targetRevision: v*
+    helm:
+      parameters:
+        - name: image.repository
+          value: git.tower.jskw.dev/webapps/s-server-tester
+      valuesObject:
+        ingress:
+          enabled: true
+          hosts:
+            - s-server.jskw.dev
+            - s-server.jskw.ca
+            - s-server.jsteelkw.ca
+            - s-server.jsteelkw.dev
+            - s-server.jsteel.ca
+            - s-server.jsteel.dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitea
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: false

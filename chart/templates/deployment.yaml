@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}
+    spec:
+      enableServiceLinks: false
+      containers:
+      - name: s-server
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.service.targetPort | default 4433 }}
+          name: https
+        {{- if .Values.probes.liveness.enabled }}
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.probes.liveness.path | default "/index.html" }}
+            port: https
+            scheme: {{ .Values.probes.liveness.scheme | default "HTTPS" }}
+          initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds | default 5 }}
+          periodSeconds: {{ .Values.probes.liveness.periodSeconds | default 10 }}
+        {{- end }}
+        {{- if .Values.probes.readiness.enabled }}
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.probes.readiness.path | default "/index.html" }}
+            port: https
+            scheme: {{ .Values.probes.readiness.scheme | default "HTTPS" }}
+          initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds | default 3 }}
+          periodSeconds: {{ .Values.probes.readiness.periodSeconds | default 5 }}
+        {{- end }}
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        env:
+        - name: PORT
+          value: {{ .Values.service.targetPort | default 4433 | quote }}
+        {{- range $key, $val := .Values.env }}
+        - name: {{ $key }}
+          value: {{ $val | quote }}
+        {{- end }}
+        {{- if .Values.persistence.enabled }}
+        volumeMounts:
+        - name: certs
+          mountPath: {{ .Values.persistence.mountPath | default "/certs" }}
+        {{- end }}
+      {{- if .Values.persistence.enabled }}
+      volumes:
+      - name: certs
+        persistentVolumeClaim:
+          claimName: {{ .Values.persistence.existingClaim | default (printf "%s-certs" .Release.Name) }}
+      {{- end }}

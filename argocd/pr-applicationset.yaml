@@ -1,0 +1,42 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: s-server-tester-prs
+  namespace: argocd
+spec:
+  generators:
+    - pullRequest:
+        gitea:
+          owner: webapps
+          repo: s-server-tester
+          api: https://git.tower.jskw.dev/
+        requeueAfterSeconds: 60
+  template:
+    metadata:
+      name: 's-server-tester-pr-{{number}}'
+      namespace: argocd
+    spec:
+      project: default
+      source:
+        repoURL: 'https://git.tower.jskw.dev/webapps/s-server-tester.git'
+        targetRevision: '{{head_sha}}'
+        path: chart
+        helm:
+          parameters:
+            - name: image.tag
+              value: '{{head_sha}}'
+            - name: ingress.enabled
+              value: "true"
+            - name: image.repository
+              value: git.tower.jskw.dev/webapps/s-server-tester
+            - name: ingress.hosts[0]
+              value: 'pr-{{number}}-s-server.jskw.dev'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: gitea
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

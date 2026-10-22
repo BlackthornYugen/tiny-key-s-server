@@ -1,0 +1,12 @@
+.DS_Store
+.idea/
+*.swp
+*.swo
+*.log
+*.tmp
+tests/*.pem
+tests/*.key
+tests/*.csr
+tests/*.cnf
+tests/*.bin
+tests/*.raw
