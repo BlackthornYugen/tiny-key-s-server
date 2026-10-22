@@ -186,7 +186,7 @@ else
         fi
         
         SEED_TYPE="Exact Scalar 's' Bytes"
-        SEED_DISPLAY="Server s: 0x$SERVER_SCALAR (CA s: 0x$CA_SCALAR)"
+        SEED_DISPLAY="Server: 0x$SERVER_SCALAR<br>CA:&nbsp;&nbsp;&nbsp;&nbsp;0x$CA_SCALAR"
         echo ">> Configured EC scalar 's' bytes:"
         echo "   Server Key scalar: 0x$SERVER_SCALAR"
         echo "   CA Key scalar:     0x$CA_SCALAR"
@@ -378,6 +378,9 @@ cat > "$HTML_OUTPUT_FILE" <<'HTML_HEADER'
       border-radius: 0.75rem;
       padding: 1.25rem;
     }
+    .card-full {
+      grid-column: 1 / -1;
+    }
     .card-title {
       font-size: 0.8rem;
       text-transform: uppercase;
@@ -480,28 +483,40 @@ cat > "$HTML_OUTPUT_FILE" <<'HTML_HEADER'
 
     <div class="grid">
       <div class="card">
-        <div class="card-title">s_server Mode</div>
-        <div class="card-value">-__WWW_MODE__ (Port __PORT__)</div>
+        <div class="card-title">WWW_MODE</div>
+        <div class="card-value">-__WWW_MODE__</div>
       </div>
       <div class="card">
-        <div class="card-title">Entropy / Scalar "s"</div>
-        <div class="card-value">__SEED_DISPLAY__</div>
+        <div class="card-title">PORT</div>
+        <div class="card-value">__PORT__</div>
       </div>
       <div class="card">
-        <div class="card-title">EC Curves</div>
-        <div class="card-value">CA: __CA_CURVE__<br>Server: __SERVER_CURVE__</div>
+        <div class="card-title">SERVER_CURVE</div>
+        <div class="card-value">__SERVER_CURVE__</div>
       </div>
       <div class="card">
-        <div class="card-title">Server Subject</div>
+        <div class="card-title">CA_CURVE</div>
+        <div class="card-value">__CA_CURVE__</div>
+      </div>
+      <div class="card">
+        <div class="card-title">SERVER_SUBJECT</div>
         <div class="card-value">__SERVER_SUBJECT__</div>
       </div>
       <div class="card">
-        <div class="card-title">Domains (SAN)</div>
+        <div class="card-title">CA_SUBJECT</div>
+        <div class="card-value">__CA_SUBJECT__</div>
+      </div>
+      <div class="card">
+        <div class="card-title">DOMAINS</div>
         <div class="card-value">__DOMAINS__</div>
       </div>
       <div class="card">
-        <div class="card-title">IPs (SAN)</div>
+        <div class="card-title">IPS</div>
         <div class="card-value">__IPS__</div>
+      </div>
+      <div class="card card-full">
+        <div class="card-title">S_BYTES</div>
+        <div class="card-value" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.95rem; line-height: 1.8;">__SEED_DISPLAY__</div>
       </div>
     </div>
 
@@ -525,6 +540,7 @@ sed -i "s|__PORT__|$PORT|g" "$HTML_OUTPUT_FILE"
 sed -i "s|__SEED_DISPLAY__|$SEED_DISPLAY|g" "$HTML_OUTPUT_FILE"
 sed -i "s|__CA_CURVE__|$CA_CURVE|g" "$HTML_OUTPUT_FILE"
 sed -i "s|__SERVER_CURVE__|$SERVER_CURVE|g" "$HTML_OUTPUT_FILE"
+sed -i "s|__CA_SUBJECT__|$CA_SUBJECT|g" "$HTML_OUTPUT_FILE"
 sed -i "s|__SERVER_SUBJECT__|$SERVER_SUBJECT|g" "$HTML_OUTPUT_FILE"
 sed -i "s|__DOMAINS__|$DOMAINS|g" "$HTML_OUTPUT_FILE"
 sed -i "s|__IPS__|$IPS|g" "$HTML_OUTPUT_FILE"
