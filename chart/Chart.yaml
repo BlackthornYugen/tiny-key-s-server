@@ -1,5 +1,5 @@
 apiVersion: v2
-name: s-server-tester
+name: tiny-key-s-server
 description: OpenSSL s_server testing tool with dynamic EC key chains, custom SANs, and HTML audit pages
 type: application
 version: 0.1.0

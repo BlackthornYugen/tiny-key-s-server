@@ -1,5 +1,5 @@
 image:
-  repository: git.tower.jskw.dev/webapps/s-server-tester
+  repository: git.tower.jskw.dev/webapps/tiny-key-s-server
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""
@@ -19,7 +19,7 @@ ingress:
     haproxy.org/ssl-passthrough: "false"
   # Array of domains for the ingress
   hosts:
-    - s-server.jskw.dev
+    - tiny-key-s-server.jskw.dev
 
 resources:
   limits:

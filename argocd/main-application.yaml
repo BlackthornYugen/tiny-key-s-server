@@ -1,28 +1,28 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: s-server-tester-main
+  name: tiny-key-s-server-main
   namespace: argocd
 spec:
   project: default
   source:
-    repoURL: https://git.tower.jskw.dev/webapps/s-server-tester.git
+    repoURL: https://git.tower.jskw.dev/webapps/tiny-key-s-server.git
     path: ./chart
     targetRevision: v*
     helm:
       parameters:
         - name: image.repository
-          value: git.tower.jskw.dev/webapps/s-server-tester
+          value: git.tower.jskw.dev/webapps/tiny-key-s-server
       valuesObject:
         ingress:
           enabled: true
           hosts:
-            - s-server.jskw.dev
-            - s-server.jskw.ca
-            - s-server.jsteelkw.ca
-            - s-server.jsteelkw.dev
-            - s-server.jsteel.ca
-            - s-server.jsteel.dev
+            - tiny-key-s-server.jskw.dev
+            - tiny-key-s-server.jskw.ca
+            - tiny-key-s-server.jsteelkw.ca
+            - tiny-key-s-server.jsteelkw.dev
+            - tiny-key-s-server.jsteel.ca
+            - tiny-key-s-server.jsteel.dev
   destination:
     server: https://kubernetes.default.svc
     namespace: gitea
