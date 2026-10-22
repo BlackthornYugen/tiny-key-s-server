@@ -13,6 +13,8 @@ spec:
       parameters:
         - name: image.repository
           value: git.tower.jskw.dev/webapps/tiny-key-s-server
+        - name: image.pullPolicy
+          value: Always
       valuesObject:
         ingress:
           enabled: true

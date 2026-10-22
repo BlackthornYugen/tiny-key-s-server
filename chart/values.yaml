@@ -1,6 +1,6 @@
 image:
   repository: git.tower.jskw.dev/webapps/tiny-key-s-server
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""
 
