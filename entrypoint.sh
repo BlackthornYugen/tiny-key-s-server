@@ -186,7 +186,7 @@ else
         fi
         
         SEED_TYPE="Exact Scalar 's' Bytes"
-        SEED_DISPLAY="Server: 0x$SERVER_SCALAR<br>CA:&nbsp;&nbsp;&nbsp;&nbsp;0x$CA_SCALAR"
+        SEED_DISPLAY="Server: 0x$SERVER_SCALAR<br>CA:     0x$CA_SCALAR"
         echo ">> Configured EC scalar 's' bytes:"
         echo "   Server Key scalar: 0x$SERVER_SCALAR"
         echo "   CA Key scalar:     0x$CA_SCALAR"
@@ -516,7 +516,7 @@ cat > "$HTML_OUTPUT_FILE" <<'HTML_HEADER'
       </div>
       <div class="card card-full">
         <div class="card-title">S_BYTES</div>
-        <div class="card-value" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.95rem; line-height: 1.8;">__SEED_DISPLAY__</div>
+        <div class="card-value" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.95rem; line-height: 1.8; white-space: pre-wrap;">__SEED_DISPLAY__</div>
       </div>
     </div>
 
