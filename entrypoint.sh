@@ -478,7 +478,7 @@ cat > "$HTML_OUTPUT_FILE" <<'HTML_HEADER'
   <div class="container">
     <header>
       <h1>OpenSSL s_server Testing Tool <span class="badge">mode: -__WWW_MODE__</span></h1>
-      <p class="lead">Generated certificate chain, keys, and reproducible OpenSSL commands.</p>
+      <p class="lead">Testing standard EC curves with small integers as private key scalars.</p>
     </header>
 
     <div class="grid">

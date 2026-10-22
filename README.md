@@ -1,6 +1,6 @@
 # tiny-key-s-server
 
-A lightweight, automated containerized testing tool powered by Alpine Linux and OpenSSL `s_server` for testing with exact/tiny Elliptic Curve private keys.
+A lightweight, automated containerized testing tool powered by Alpine Linux and OpenSSL `s_server` for testing with small integers as Elliptic Curve private keys.
 
 It generates a two-tier Elliptic Curve (EC) certificate chain (CA + Server), signs the server certificate with custom SAN extensions (IPs and domain names), captures and echoes all executed OpenSSL commands, and serves a live HTML report explaining how the certificate and key were created while running in `-WWW` or `-www` mode.
 
