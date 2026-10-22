@@ -30,7 +30,7 @@ It generates a two-tier Elliptic Curve (EC) certificate chain (CA + Server), sig
 ```bash
 docker run -p 4433:4433 \
   -e S_BYTES="0xdeadbeef1337" \
-  s-server-tester:latest
+  ghcr.io/blackthornyugen/tiny-key-s-server:latest
 ```
 When running `openssl ec -in server.key.pem -text -noout`, the private key scalar displays:
 ```text
@@ -47,7 +47,7 @@ docker run -p 4433:4433 \
   -e S_BYTES="42" \
   -e DOMAINS="localhost,test.internal" \
   -e IPS="127.0.0.1,192.168.1.100" \
-  s-server-tester:latest
+  ghcr.io/blackthornyugen/tiny-key-s-server:latest
 ```
 
 ### 3. Run with Independent CA and Server Scalars
@@ -58,7 +58,7 @@ docker run -p 4433:4433 \
   -e CA_S_BYTES="0x1337c0de" \
   -e CA_CURVE="prime256v1" \
   -e SERVER_CURVE="prime256v1" \
-  s-server-tester:latest
+  ghcr.io/blackthornyugen/tiny-key-s-server:latest
 ```
 
 ### 4. Run with Mounted Volume Override
@@ -68,7 +68,7 @@ If you have pre-generated certificates (such as Let's Encrypt or Vault certs):
 ```bash
 docker run -p 4433:4433 \
   -v /path/to/my/certs:/certs:ro \
-  s-server-tester:latest
+  ghcr.io/blackthornyugen/tiny-key-s-server:latest
 ```
 When `fullchain.pem` (or `tls.crt`) and `privkey.pem` (or `tls.key` / `server.key`) are present in `/certs`, the container inspects and serves them directly without generating new certificates.
 
@@ -101,15 +101,16 @@ openssl s_client -connect localhost:4433 -showcerts
 
 | Variable | Default | Description |
 |---|---|---|
-| `SEED` / `SEED_BYTES` | *empty* | Small int (e.g. `42`) or hex string (`deadbeef...`) to seed key generation. |
+| `S_BYTES` / `SERVER_S_BYTES` | *`0x01` in chart* | Exact integer (e.g. `1`, `42`) or hex scalar (`0xdeadbeef...`) for the server EC private key. |
+| `CA_S_BYTES` | *derived ($s+1$)* | Exact integer or hex scalar for the CA EC private key. |
 | `WWW_MODE` | `WWW` | Mode for `openssl s_server` (`WWW` serves files, `www` serves built-in status page, `HTTP` includes headers). |
 | `PORT` | `4433` | TCP port `s_server` listens on. |
 | `CA_CURVE` | `prime256v1` | Elliptic curve for CA key. |
 | `SERVER_CURVE` | `prime256v1` | Elliptic curve for Server key. |
 | `CURVE` | `prime256v1` | Fallback curve for both CA and Server if not individually set. |
-| `CA_SUBJECT` | `/CN=Test OpenSSL CA/O=Test Lab/C=US` | X.509 subject for CA. |
-| `SERVER_SUBJECT` | `/CN=localhost/O=Test Lab/C=US` | X.509 subject for Server cert. |
-| `DOMAINS` | `localhost` | Comma- or space-separated list of DNS SANs. |
+| `CA_SUBJECT` | `/CN=Test OpenSSL CA/O=Test Lab/C=CA` | X.509 subject for CA. |
+| `SERVER_SUBJECT` | `/CN=localhost/O=Test Lab/C=CA` | X.509 subject for Server cert. |
+| `DOMAINS` | `tiny-key-s-server.jskw.dev,localhost` | Comma- or space-separated list of DNS SANs. |
 | `IPS` | `127.0.0.1` | Comma- or space-separated list of IP SANs. |
 | `CA_DAYS` | `3650` | Validity period (in days) for CA certificate. |
 | `SERVER_DAYS` | `365` | Validity period (in days) for Server certificate. |
@@ -122,7 +123,7 @@ openssl s_client -connect localhost:4433 -showcerts
 
 All tests are designed to execute cleanly inside ephemeral Docker containers without modifying the host system:
 
-- [`tests/test_seed_keys.sh`](file:///Users/jsteel/Documents/antigravity/optimistic-bohr/tests/test_seed_keys.sh): Tests seed processing (both integer and hex string) and EC key generation.
+- [`tests/test_scalar_s_bytes.sh`](file:///Users/jsteel/Documents/antigravity/optimistic-bohr/tests/test_scalar_s_bytes.sh): Tests scalar generation and verifies that `openssl ec -text` displays the exact user hex.
 - [`tests/test_chain_generation.sh`](file:///Users/jsteel/Documents/antigravity/optimistic-bohr/tests/test_chain_generation.sh): Tests CA creation, server CSR signing, SAN injection, and `openssl verify`.
 - [`tests/test_s_server_behavior.sh`](file:///Users/jsteel/Documents/antigravity/optimistic-bohr/tests/test_s_server_behavior.sh): Tests `-WWW` and `-www` response semantics with `curl`.
 - [`tests/test_volume_override.sh`](file:///Users/jsteel/Documents/antigravity/optimistic-bohr/tests/test_volume_override.sh): Tests mounting an external volume containing pre-existing certificates.
@@ -141,10 +142,10 @@ To run all tests:
 A Helm chart is located in `chart/`:
 
 ```bash
-helm upgrade --install s-server ./chart \
-  --set env.DOMAINS="s-server.jskw.dev,localhost" \
+helm upgrade --install tiny-key-s-server ./chart \
+  --set env.DOMAINS="tiny-key-s-server.jskw.dev,localhost" \
   --set ingress.enabled=true \
-  --set ingress.hosts[0]=s-server.jskw.dev
+  --set ingress.hosts[0]=tiny-key-s-server.jskw.dev
 ```
 
 Continuous deployment is handled by ArgoCD manifests in `argocd/`:
