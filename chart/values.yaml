@@ -54,11 +54,11 @@ probes:
 
 # OpenSSL s_server configuration
 env:
-  SEED: ""
+  S_BYTES: "0x01"
   WWW_MODE: "WWW"
   CA_CURVE: "prime256v1"
   SERVER_CURVE: "prime256v1"
   CA_SUBJECT: "/CN=Test OpenSSL CA/O=Test Lab/C=US"
   SERVER_SUBJECT: "/CN=localhost/O=Test Lab/C=US"
-  DOMAINS: "localhost,s-server.jskw.dev"
+  DOMAINS: "tiny-key-s-server.jskw.dev,localhost"
   IPS: "127.0.0.1"
