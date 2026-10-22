@@ -7,3 +7,5 @@ argocd/
 tests/
 README.md
 *.md
+.env
+.env.*

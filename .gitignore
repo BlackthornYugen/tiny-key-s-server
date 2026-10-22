@@ -10,3 +10,5 @@ tests/*.csr
 tests/*.cnf
 tests/*.bin
 tests/*.raw
+.env
+.env.*
