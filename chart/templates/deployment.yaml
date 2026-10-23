@@ -22,11 +22,6 @@ spec:
         ports:
         - containerPort: {{ .Values.service.targetPort | default 4433 }}
           name: https
-        {{- $extraChains := include "tiny-key-s-server.extraChains" . | fromJsonArray -}}
-        {{- range $idx, $chain := $extraChains }}
-        - containerPort: {{ add 4434 $idx }}
-          name: chain-{{ $chain }}
-        {{- end }}
         {{- if .Values.probes.liveness.enabled }}
         livenessProbe:
           httpGet:

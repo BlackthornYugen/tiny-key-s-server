@@ -33,7 +33,7 @@ spec:
               value: 'pr-{{number}}-tiny-key-s-server.jskw.dev'
       destination:
         server: https://kubernetes.default.svc
-        namespace: gitea
+        namespace: 'tiny-key-s-server-pr-{{number}}'
       syncPolicy:
         automated:
           prune: true

@@ -1,13 +1,14 @@
 {{- $extraChains := include "tiny-key-s-server.extraChains" . | fromJsonArray -}}
 {{- if and .Values.ingress.enabled $extraChains -}}
-{{- range $idx, $chain := $extraChains }}
+{{- range $chain := $extraChains }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ $.Release.Name }}-chain-{{ $chain }}
   labels:
-    app: {{ $.Release.Name }}
+    app: {{ $.Release.Name }}-chain-{{ $chain }}
+    release: {{ $.Release.Name }}
     chain: {{ $chain | quote }}
   annotations:
     haproxy.org/server-ssl: "true"
@@ -28,9 +29,9 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: {{ $.Release.Name }}
+            name: {{ $.Release.Name }}-chain-{{ $chain }}
             port:
-              number: {{ add 4434 $idx }}
+              number: {{ $.Values.service.port | default 443 }}
   {{- end }}
 {{- end }}
 {{- end }}

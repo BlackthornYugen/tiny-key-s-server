@@ -10,8 +10,8 @@ Namespace: {{ .Release.Namespace }}
   {{- range .Values.ingress.hosts }}
   URL: https://{{ . }}:8443/index.html (or https://{{ . }})
   {{- end }}
-  TLS: Terminated by Ingress controller using default cluster SSL.
-       Standard web browsers can view the audit report with trusted padlock.
+  TLS: Terminated by Ingress controller using default cluster SSL (*.jskw.dev).
+       Standard web browsers can view the audit report with a trusted padlock.
 {{- else }}
   Ingress is disabled. Connect via port-forward:
   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ .Release.Name }} 4433:443
@@ -23,11 +23,11 @@ Namespace: {{ .Release.Namespace }}
 
 2. Extra Chain Ingresses (Raw Generated Keychains via SSL-Passthrough):
 --------------------------------------------------------------------------------
-These endpoints pass through raw TLS directly to dedicated OpenSSL s_server
-listeners. Each endpoint serves its respective generated EC certificate chain:
+Each chain runs as an isolated pod and deployment, serving its respective
+generated EC certificate chain via SSL-Passthrough:
 
 {{- range $idx, $chain := $extraChains }}
-  [{{ $idx | add 1 }}] Chain: {{ $chain }} (Internal Port: {{ add 4434 $idx }})
+  [{{ $idx | add 1 }}] Chain: {{ $chain }} (Pod/Deployment: {{ $.Release.Name }}-chain-{{ $chain }})
   {{- range $.Values.ingress.hosts }}
       Host:   {{ printf "%s-%s" $chain . }}
       URL:    https://{{ printf "%s-%s" $chain . }}:8443

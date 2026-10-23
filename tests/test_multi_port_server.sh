@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Test script: verifies multi-root auto-generation and companion multi-port listeners
+# Test script: verifies single-process container isolation per chain mode
 set -euo pipefail
 
-echo "=== Running test_multi_port_server in ephemeral docker container ==="
+echo "=== Running test_multi_port_server (isolated single-process per container) in ephemeral docker ==="
 
 docker run --rm -v "$(pwd)/entrypoint.sh:/entrypoint.sh:ro" alpine:latest sh -c '
 set -euo pipefail
@@ -11,72 +11,63 @@ apk add --no-cache openssl xxd bash curl >/dev/null 2>&1
 WORKDIR=$(mktemp -d)
 cd "$WORKDIR"
 
-echo "1. Testing Dual Roots (ROOTS=c1,c2)..."
-SERVE_DIR="$WORKDIR/serve_dual"
+echo "1. Testing Container dedicated to Chain c1..."
+SERVE_DIR="$WORKDIR/serve_c1"
 export SERVE_DIR
 export S_BYTES="0x01"
 export CA_S_BYTES="0x02"
 export ROOTS="c1,c2"
 export ROOT_S_BYTES="0x10,0x20"
-export PORT="18460"
+export CHAIN_MODE="c1"
+export PORT="18481"
 
-bash /entrypoint.sh </dev/null >/tmp/server_dual.log 2>&1 &
+bash /entrypoint.sh </dev/null >/tmp/server_c1.log 2>&1 &
 PID1=$!
-sleep 3
+sleep 2
 
-# Check primary port (18460)
-echo "Testing Primary Port (18460)..."
-curl -k -s https://127.0.0.1:18460/index.html | grep -q "OpenSSL s_server Testing Report"
-echo "Primary port serving index.html correctly!"
+# Verify TLS handshake with Root c1
+openssl s_client -connect 127.0.0.1:18481 -CAfile "$SERVE_DIR/roots/c1.crt.pem" </dev/null 2>&1 | grep "Verification: OK"
+echo "Chain c1 container verified OK!"
 
-# Check that HTML report lists the companion ports
-curl -k -s https://127.0.0.1:18460/index.html | grep -q "Port 4434: Chain .c1."
-curl -k -s https://127.0.0.1:18460/index.html | grep -q "Port 4435: Chain .c2."
-curl -k -s https://127.0.0.1:18460/index.html | grep -q "Port 4436: Combined Chain .all."
-echo "HTML report contains all companion port definitions!"
-
-# Verify TLS connection to Port 4434 (c1) with Root c1
-echo "Verifying Port 4434 (c1) TLS handshake..."
-openssl s_client -connect 127.0.0.1:4434 -CAfile "$SERVE_DIR/roots/c1.crt.pem" </dev/null 2>&1 | grep "Verification: OK"
-echo "Port 4434 (c1) verified OK with Root c1!"
-
-# Verify TLS connection to Port 4435 (c2) with Root c2
-echo "Verifying Port 4435 (c2) TLS handshake..."
-openssl s_client -connect 127.0.0.1:4435 -CAfile "$SERVE_DIR/roots/c2.crt.pem" </dev/null 2>&1 | grep "Verification: OK"
-echo "Port 4435 (c2) verified OK with Root c2!"
-
-# Verify TLS connection to Port 4436 (all)
-echo "Verifying Port 4436 (all) TLS handshake..."
-openssl s_client -connect 127.0.0.1:4436 -CAfile "$SERVE_DIR/roots/c1.crt.pem" </dev/null 2>&1 | grep "Verification: OK"
-echo "Port 4436 (all) verified OK!"
+# Verify exactly ONE openssl process is running for this container
+PROC_COUNT=$(pgrep openssl | wc -l)
+if [ "$PROC_COUNT" -ne 1 ]; then
+    echo "ERROR: Expected exactly 1 openssl process, found $PROC_COUNT"
+    exit 1
+fi
+echo "Verified exactly 1 process running in container (no background companion processes)!"
 
 kill $PID1 2>/dev/null || true
 sleep 1
 
-echo "2. Testing Single Root (ROOTS=c1)..."
-SERVE_DIR="$WORKDIR/serve_single"
+echo "2. Testing Container dedicated to Chain c2..."
+SERVE_DIR="$WORKDIR/serve_c2"
 export SERVE_DIR
-export ROOTS="c1"
-export ROOT_S_BYTES="0x10"
-export PORT="18470"
+export CHAIN_MODE="c2"
+export PORT="18482"
 
-bash /entrypoint.sh </dev/null >/tmp/server_single.log 2>&1 &
+bash /entrypoint.sh </dev/null >/tmp/server_c2.log 2>&1 &
 PID2=$!
-sleep 3
+sleep 2
 
-# Verify single companion port 4434 (c1)
-echo "Verifying Single Root Port 4434 (c1)..."
-openssl s_client -connect 127.0.0.1:4434 -CAfile "$SERVE_DIR/roots/c1.crt.pem" </dev/null 2>&1 | grep "Verification: OK"
-echo "Single root c1 verified OK!"
-
-# Verify port 4435 is NOT open (since no all/c2)
-if nc -z 127.0.0.1 4435 2>/dev/null; then
-    echo "ERROR: Port 4435 should not be open for single chain!"
-    exit 1
-fi
-echo "Verified port 4435 is not open (as expected for single chain)!"
-
+openssl s_client -connect 127.0.0.1:18482 -CAfile "$SERVE_DIR/roots/c2.crt.pem" </dev/null 2>&1 | grep "Verification: OK"
+echo "Chain c2 container verified OK!"
 kill $PID2 2>/dev/null || true
+sleep 1
+
+echo "3. Testing Container dedicated to Chain all..."
+SERVE_DIR="$WORKDIR/serve_all"
+export SERVE_DIR
+export CHAIN_MODE="all"
+export PORT="18483"
+
+bash /entrypoint.sh </dev/null >/tmp/server_all.log 2>&1 &
+PID3=$!
+sleep 2
+
+openssl s_client -connect 127.0.0.1:18483 -CAfile "$SERVE_DIR/roots/c1.crt.pem" </dev/null 2>&1 | grep "Verification: OK"
+echo "Chain all container verified OK!"
+kill $PID3 2>/dev/null || true
 
 echo "=== test_multi_port_server PASSED ==="
 '

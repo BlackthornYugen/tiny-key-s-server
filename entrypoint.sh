@@ -800,36 +800,34 @@ EOF
     step_num=$((step_num + 1))
 done
 
-# Append Multi-Chain Listeners Info to HTML
+# Append Multi-Chain Endpoints Info to HTML
 cat >> "$HTML_OUTPUT_FILE" <<EOF
-    <div class="section-title">Multi-Chain Listeners & Ingress Endpoints</div>
+    <div class="section-title">Multi-Chain Endpoints & Ingress Routes</div>
     <div class="step-box">
-      <div class="step-header"><span>Dedicated Chain Listeners</span></div>
+      <div class="step-header"><span>Dedicated Chain Endpoints</span></div>
       <div class="step-body">
-        <pre><span class="cmd-line"># Primary Port $PORT (Default Browser / Web UI)</span>
+        <pre><span class="cmd-line"># Primary Endpoint (Default Browser / Web UI)</span>
 Host: $(echo "$DOMAINS" | cut -d',' -f1):$PORT
 Chain Mode: $CHAIN_MODE
 EOF
 
-list_port=4434
 if [ -d "$SERVE_DIR/chains" ]; then
     for cf in "$SERVE_DIR/chains"/c*.pem; do
         [ -f "$cf" ] || continue
         cb=$(basename "$cf" .pem)
         cat >> "$HTML_OUTPUT_FILE" <<EOF
 
-<span class="cmd-line"># Port $list_port: Chain '$cb'</span>
-Subdomain: ${cb}-$(echo "$DOMAINS" | cut -d',' -f1)
-openssl s_client -connect localhost:$list_port -showcerts
+<span class="cmd-line"># Endpoint: Chain '$cb' (Dedicated Pod & Ingress)</span>
+Domain: ${cb}-$(echo "$DOMAINS" | cut -d',' -f1)
+openssl s_client -connect ${cb}-$(echo "$DOMAINS" | cut -d',' -f1):8443 -showcerts
 EOF
-        list_port=$((list_port + 1))
     done
     if [ -f "$SERVE_DIR/chains/all.pem" ]; then
         cat >> "$HTML_OUTPUT_FILE" <<EOF
 
-<span class="cmd-line"># Port $list_port: Combined Chain 'all'</span>
-Subdomain: all-$(echo "$DOMAINS" | cut -d',' -f1)
-openssl s_client -connect localhost:$list_port -showcerts
+<span class="cmd-line"># Endpoint: Combined Chain 'all' (Dedicated Pod & Ingress)</span>
+Domain: all-$(echo "$DOMAINS" | cut -d',' -f1)
+openssl s_client -connect all-$(echo "$DOMAINS" | cut -d',' -f1):8443 -showcerts
 EOF
     fi
 fi
@@ -869,62 +867,18 @@ cp "$HTML_OUTPUT_FILE" "$SERVE_DIR/openssl.html"
 cp "$COMMAND_LOG_FILE" "$SERVE_DIR/commands.txt" 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
-# Launch Companion s_server Listeners for Extra Chains (ports 4434, 4435...)
+# Launch openssl s_server
 # ------------------------------------------------------------------------------
+echo "==================================================================="
+echo " Launching openssl s_server on port $PORT with -$WWW_MODE"
+echo " Active Chain Mode: $CHAIN_MODE"
+echo "==================================================================="
+
 CERT_FILE="$SERVE_DIR/server.crt.pem"
 [ -f "$CERT_FILE" ] || CERT_FILE="$SERVE_DIR/fullchain.pem"
 
 CHAIN_FILE_ARG="$SERVE_DIR/chain.pem"
 [ -f "$CHAIN_FILE_ARG" ] || CHAIN_FILE_ARG="$SERVE_DIR/fullchain.pem"
-
-declare -a BG_PIDS=()
-MAIN_PID=""
-cleanup_bg() {
-    echo ">> Stopping s_server processes..."
-    [ -n "$MAIN_PID" ] && kill "$MAIN_PID" 2>/dev/null || true
-    for pid in "${BG_PIDS[@]}"; do
-        kill "$pid" 2>/dev/null || true
-    done
-}
-trap cleanup_bg EXIT SIGTERM SIGINT
-
-comp_port=4434
-if [ -d "$SERVE_DIR/chains" ]; then
-    # 1. Start listener for each individual root chain (c1, c2, ...)
-    for c_file in "$SERVE_DIR/chains"/c*.pem; do
-        [ -f "$c_file" ] || continue
-        c_base=$(basename "$c_file" .pem)
-        echo ">> Starting companion s_server for chain '$c_base' on port $comp_port..."
-        openssl s_server \
-            -accept "$comp_port" \
-            -key "$SERVE_DIR/server.key.pem" \
-            -cert "$CERT_FILE" \
-            -cert_chain "$c_file" \
-            "-$WWW_MODE" >/dev/null 2>&1 &
-        BG_PIDS+=($!)
-        comp_port=$((comp_port + 1))
-    done
-
-    # 2. Start listener for combined 'all' chain if present
-    if [ -f "$SERVE_DIR/chains/all.pem" ]; then
-        echo ">> Starting companion s_server for chain 'all' on port $comp_port..."
-        openssl s_server \
-            -accept "$comp_port" \
-            -key "$SERVE_DIR/server.key.pem" \
-            -cert "$CERT_FILE" \
-            -cert_chain "$SERVE_DIR/chains/all.pem" \
-            "-$WWW_MODE" >/dev/null 2>&1 &
-        BG_PIDS+=($!)
-        comp_port=$((comp_port + 1))
-    fi
-fi
-
-# ------------------------------------------------------------------------------
-# Launch Primary openssl s_server
-# ------------------------------------------------------------------------------
-echo "==================================================================="
-echo " Launching openssl s_server on port $PORT with -$WWW_MODE"
-echo "==================================================================="
 
 S_SERVER_CMD=(
     openssl s_server
@@ -945,10 +899,4 @@ if [ -n "$EXTRA_S_SERVER_ARGS" ]; then
 fi
 
 echo "Executing: ${S_SERVER_CMD[*]}"
-if [ ${#BG_PIDS[@]} -eq 0 ]; then
-    exec "${S_SERVER_CMD[@]}"
-else
-    "${S_SERVER_CMD[@]}" &
-    MAIN_PID=$!
-    wait "$MAIN_PID"
-fi
+exec "${S_SERVER_CMD[@]}"
