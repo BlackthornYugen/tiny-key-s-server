@@ -1,0 +1,38 @@
+================================================================================
+  OpenSSL s_server Testing Tool (tiny-key-s-server)
+================================================================================
+Release:   {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+1. Default Ingress (Browser UI):
+--------------------------------------------------------------------------------
+{{- if .Values.ingress.enabled }}
+  {{- range .Values.ingress.hosts }}
+  URL: https://{{ . }}:8443/index.html (or https://{{ . }})
+  {{- end }}
+  TLS: Terminated by Ingress controller using default cluster SSL.
+       Standard web browsers can view the audit report with trusted padlock.
+{{- else }}
+  Ingress is disabled. Connect via port-forward:
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ .Release.Name }} 4433:443
+  URL: https://localhost:4433/index.html
+{{- end }}
+
+{{- $extraChains := include "tiny-key-s-server.extraChains" . | fromJsonArray }}
+{{- if and .Values.ingress.enabled $extraChains }}
+
+2. Extra Chain Ingresses (Raw Generated Keychains via SSL-Passthrough):
+--------------------------------------------------------------------------------
+These endpoints pass through raw TLS directly to dedicated OpenSSL s_server
+listeners. Each endpoint serves its respective generated EC certificate chain:
+
+{{- range $idx, $chain := $extraChains }}
+  [{{ $idx | add 1 }}] Chain: {{ $chain }} (Internal Port: {{ add 4434 $idx }})
+  {{- range $.Values.ingress.hosts }}
+      Host:   {{ printf "%s-%s" $chain . }}
+      URL:    https://{{ printf "%s-%s" $chain . }}:8443
+      Verify: openssl s_client -connect {{ printf "%s-%s" $chain . }}:8443 -servername {{ printf "%s-%s" $chain . }} -showcerts
+  {{- end }}
+{{- end }}
+{{- end }}
+================================================================================

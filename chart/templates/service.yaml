@@ -11,5 +11,12 @@ spec:
     targetPort: {{ .Values.service.targetPort | default 4433 }}
     protocol: TCP
     name: https
+  {{- $extraChains := include "tiny-key-s-server.extraChains" . | fromJsonArray -}}
+  {{- range $idx, $chain := $extraChains }}
+  - port: {{ add 4434 $idx }}
+    targetPort: {{ add 4434 $idx }}
+    protocol: TCP
+    name: chain-{{ $chain }}
+  {{- end }}
   selector:
     app: {{ .Release.Name }}

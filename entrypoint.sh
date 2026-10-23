@@ -41,6 +41,8 @@ CHAINS_DIR="${CHAINS_DIR:-$CERTS_DIR/chains}"
 ROOTS_DIR="${ROOTS_DIR:-$CERTS_DIR/roots}"
 EXTRA_CHAIN_PEM="${EXTRA_CHAIN_PEM:-}"
 CHAIN_FILE="${CHAIN_FILE:-}"
+ROOTS="${ROOTS:-${CHAINS:-}}"
+ROOT_S_BYTES="${ROOT_S_BYTES:-}"
 
 # Extra s_server arguments
 EXTRA_S_SERVER_ARGS="${EXTRA_S_SERVER_ARGS:-}"
@@ -295,7 +297,99 @@ EOF
     # --------------------------------------------------------------------------
     # Cross-Signing & Certificate Chain Assembly
     # --------------------------------------------------------------------------
-    mkdir -p "$SERVE_DIR/chains"
+    mkdir -p "$SERVE_DIR/chains" "$SERVE_DIR/roots"
+
+    # 0. Check for ROOTS or ROOT_S_BYTES env vars and auto-generate Root CAs if provided
+    ROOTS_INPUT="${ROOTS:-${CHAINS:-}}"
+    ROOT_S_BYTES_INPUT="${ROOT_S_BYTES:-}"
+
+    if [ -n "$ROOTS_INPUT" ] || [ -n "$ROOT_S_BYTES_INPUT" ]; then
+        declare -a ROOT_NAMES=()
+        declare -a ROOT_SCALARS=()
+
+        if [ -n "$ROOTS_INPUT" ]; then
+            IFS=',' read -ra R_NAME_ARR <<< "$ROOTS_INPUT"
+            for rn in "${R_NAME_ARR[@]}"; do
+                r_trimmed=$(echo "$rn" | tr -d ' ')
+                [ -n "$r_trimmed" ] && ROOT_NAMES+=("$r_trimmed")
+            done
+        fi
+
+        if [ -n "$ROOT_S_BYTES_INPUT" ]; then
+            IFS=',' read -ra R_SCALAR_ARR <<< "$ROOT_S_BYTES_INPUT"
+            for rs in "${R_SCALAR_ARR[@]}"; do
+                rs_trimmed=$(echo "$rs" | tr -d ' ')
+                [ -n "$rs_trimmed" ] && ROOT_SCALARS+=("$rs_trimmed")
+            done
+        fi
+
+        # If names were given but not scalars, generate deterministic scalars
+        if [ ${#ROOT_NAMES[@]} -gt 0 ] && [ ${#ROOT_SCALARS[@]} -eq 0 ]; then
+            idx=1
+            for rn in "${ROOT_NAMES[@]}"; do
+                hex_val=$(printf "%02x" $((16 * idx)))
+                ROOT_SCALARS+=("$hex_val")
+                idx=$((idx + 1))
+            done
+        fi
+
+        # If scalars were given but not names, generate names c1, c2, ...
+        if [ ${#ROOT_SCALARS[@]} -gt 0 ] && [ ${#ROOT_NAMES[@]} -eq 0 ]; then
+            idx=1
+            for rs in "${ROOT_SCALARS[@]}"; do
+                ROOT_NAMES+=("c$idx")
+                idx=$((idx + 1))
+            done
+        fi
+
+        # Generate each Root CA and sign Intermediate B
+        for i in "${!ROOT_NAMES[@]}"; do
+            r_name="${ROOT_NAMES[$i]}"
+            r_scalar="${ROOT_SCALARS[$i]}"
+            r_scalar_formatted=$(format_scalar "$r_scalar" "$(get_curve_bytes "$CA_CURVE")")
+
+            r_key="$SERVE_DIR/roots/${r_name}.key.pem"
+            r_crt="$SERVE_DIR/roots/${r_name}.crt.pem"
+
+            # ASN.1 key configuration
+            r_asn="$SERVE_DIR/roots/asn_${r_name}.cnf"
+            cat > "$r_asn" <<EOF
+asn1 = SEQUENCE:ec_key
+[ec_key]
+version = INTEGER:1
+privkey = FORMAT:HEX,OCTETSTRING:$r_scalar_formatted
+params = EXPLICIT:0,OBJECT:$CA_CURVE
+EOF
+            run_recorded "Encode Root CA '$r_name' DER from scalar $r_scalar" \
+                "openssl asn1parse -genconf '$r_asn' -out '$SERVE_DIR/roots/${r_name}.der'"
+            run_recorded "Package Root CA '$r_name' EC Private Key to PEM" \
+                "echo '-----BEGIN EC PRIVATE KEY-----' > '$r_key' && openssl base64 -in '$SERVE_DIR/roots/${r_name}.der' >> '$r_key' && echo '-----END EC PRIVATE KEY-----' >> '$r_key'"
+            rm -f "$SERVE_DIR/roots/${r_name}.der" "$r_asn"
+
+            # Generate Self-Signed Root Certificate
+            run_recorded "Generate Self-Signed Root Certificate for '$r_name'" \
+                "openssl req -new -x509 -key '$r_key' -out '$r_crt' -days '$CA_DAYS' -subj '/CN=Root CA ${r_name}/O=Test Lab/C=CA' -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign' -addext 'subjectKeyIdentifier=hash'"
+
+            # Intermediate extension file
+            inter_cnf="$SERVE_DIR/chains/inter_ext_${r_name}.cnf"
+            cat > "$inter_cnf" <<EOF
+basicConstraints = critical,CA:TRUE,pathlen:0
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
+EOF
+            run_recorded "Sign Intermediate B with Root CA '$r_name'" \
+                "openssl x509 -req -in '$SERVE_DIR/ca.csr.pem' -CA '$r_crt' -CAkey '$r_key' -CAcreateserial -out '$SERVE_DIR/chains/${r_name}.pem' -days '$CA_DAYS' -extfile '$inter_cnf'"
+
+            # Append root certificate so the chain is complete
+            cat "$r_crt" >> "$SERVE_DIR/chains/${r_name}.pem"
+        done
+
+        # If there are 2 or more roots, build all.pem
+        if [ ${#ROOT_NAMES[@]} -gt 1 ]; then
+            cat "$SERVE_DIR"/chains/c*.pem > "$SERVE_DIR/chains/all.pem"
+        fi
+    fi
 
     # 1. Check for external/mounted root CAs in $ROOTS_DIR and auto-sign CA key b
     if [ -d "$ROOTS_DIR" ]; then
@@ -706,6 +800,46 @@ EOF
     step_num=$((step_num + 1))
 done
 
+# Append Multi-Chain Listeners Info to HTML
+cat >> "$HTML_OUTPUT_FILE" <<EOF
+    <div class="section-title">Multi-Chain Listeners & Ingress Endpoints</div>
+    <div class="step-box">
+      <div class="step-header"><span>Dedicated Chain Listeners</span></div>
+      <div class="step-body">
+        <pre><span class="cmd-line"># Primary Port $PORT (Default Browser / Web UI)</span>
+Host: $(echo "$DOMAINS" | cut -d',' -f1):$PORT
+Chain Mode: $CHAIN_MODE
+EOF
+
+list_port=4434
+if [ -d "$SERVE_DIR/chains" ]; then
+    for cf in "$SERVE_DIR/chains"/c*.pem; do
+        [ -f "$cf" ] || continue
+        cb=$(basename "$cf" .pem)
+        cat >> "$HTML_OUTPUT_FILE" <<EOF
+
+<span class="cmd-line"># Port $list_port: Chain '$cb'</span>
+Subdomain: ${cb}-$(echo "$DOMAINS" | cut -d',' -f1)
+openssl s_client -connect localhost:$list_port -showcerts
+EOF
+        list_port=$((list_port + 1))
+    done
+    if [ -f "$SERVE_DIR/chains/all.pem" ]; then
+        cat >> "$HTML_OUTPUT_FILE" <<EOF
+
+<span class="cmd-line"># Port $list_port: Combined Chain 'all'</span>
+Subdomain: all-$(echo "$DOMAINS" | cut -d',' -f1)
+openssl s_client -connect localhost:$list_port -showcerts
+EOF
+    fi
+fi
+
+cat >> "$HTML_OUTPUT_FILE" <<EOF
+</pre>
+      </div>
+    </div>
+EOF
+
 cat >> "$HTML_OUTPUT_FILE" <<EOF
     <div class="section-title">Testing with Clients</div>
     <div class="step-box">
@@ -735,17 +869,62 @@ cp "$HTML_OUTPUT_FILE" "$SERVE_DIR/openssl.html"
 cp "$COMMAND_LOG_FILE" "$SERVE_DIR/commands.txt" 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
-# Launch openssl s_server
+# Launch Companion s_server Listeners for Extra Chains (ports 4434, 4435...)
 # ------------------------------------------------------------------------------
-echo "==================================================================="
-echo " Launching openssl s_server on port $PORT with -$WWW_MODE"
-echo "==================================================================="
-
 CERT_FILE="$SERVE_DIR/server.crt.pem"
 [ -f "$CERT_FILE" ] || CERT_FILE="$SERVE_DIR/fullchain.pem"
 
 CHAIN_FILE_ARG="$SERVE_DIR/chain.pem"
 [ -f "$CHAIN_FILE_ARG" ] || CHAIN_FILE_ARG="$SERVE_DIR/fullchain.pem"
+
+declare -a BG_PIDS=()
+MAIN_PID=""
+cleanup_bg() {
+    echo ">> Stopping s_server processes..."
+    [ -n "$MAIN_PID" ] && kill "$MAIN_PID" 2>/dev/null || true
+    for pid in "${BG_PIDS[@]}"; do
+        kill "$pid" 2>/dev/null || true
+    done
+}
+trap cleanup_bg EXIT SIGTERM SIGINT
+
+comp_port=4434
+if [ -d "$SERVE_DIR/chains" ]; then
+    # 1. Start listener for each individual root chain (c1, c2, ...)
+    for c_file in "$SERVE_DIR/chains"/c*.pem; do
+        [ -f "$c_file" ] || continue
+        c_base=$(basename "$c_file" .pem)
+        echo ">> Starting companion s_server for chain '$c_base' on port $comp_port..."
+        openssl s_server \
+            -accept "$comp_port" \
+            -key "$SERVE_DIR/server.key.pem" \
+            -cert "$CERT_FILE" \
+            -cert_chain "$c_file" \
+            "-$WWW_MODE" >/dev/null 2>&1 &
+        BG_PIDS+=($!)
+        comp_port=$((comp_port + 1))
+    done
+
+    # 2. Start listener for combined 'all' chain if present
+    if [ -f "$SERVE_DIR/chains/all.pem" ]; then
+        echo ">> Starting companion s_server for chain 'all' on port $comp_port..."
+        openssl s_server \
+            -accept "$comp_port" \
+            -key "$SERVE_DIR/server.key.pem" \
+            -cert "$CERT_FILE" \
+            -cert_chain "$SERVE_DIR/chains/all.pem" \
+            "-$WWW_MODE" >/dev/null 2>&1 &
+        BG_PIDS+=($!)
+        comp_port=$((comp_port + 1))
+    fi
+fi
+
+# ------------------------------------------------------------------------------
+# Launch Primary openssl s_server
+# ------------------------------------------------------------------------------
+echo "==================================================================="
+echo " Launching openssl s_server on port $PORT with -$WWW_MODE"
+echo "==================================================================="
 
 S_SERVER_CMD=(
     openssl s_server
@@ -766,4 +945,10 @@ if [ -n "$EXTRA_S_SERVER_ARGS" ]; then
 fi
 
 echo "Executing: ${S_SERVER_CMD[*]}"
-exec "${S_SERVER_CMD[@]}"
+if [ ${#BG_PIDS[@]} -eq 0 ]; then
+    exec "${S_SERVER_CMD[@]}"
+else
+    "${S_SERVER_CMD[@]}" &
+    MAIN_PID=$!
+    wait "$MAIN_PID"
+fi

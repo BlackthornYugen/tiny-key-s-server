@@ -37,6 +37,10 @@ echo "--> 7. Running test_chain_modes.sh..."
 "$SCRIPT_DIR/test_chain_modes.sh"
 
 echo ""
+echo "--> 8. Running test_multi_port_server.sh..."
+"$SCRIPT_DIR/test_multi_port_server.sh"
+
+echo ""
 echo "=========================================================="
 echo " ALL TEST SUITES PASSED SUCCESSFULLY!"
 echo "=========================================================="

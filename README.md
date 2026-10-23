@@ -147,7 +147,9 @@ openssl s_client -connect localhost:4433 -showcerts
 |---|---|---|
 | `S_BYTES` / `SERVER_S_BYTES` | *`0x01` in chart* | Exact integer (e.g. `1`, `42`) or hex scalar (`0xdeadbeef...`) for the server EC private key. |
 | `CA_S_BYTES` | *derived ($s+1$)* | Exact integer or hex scalar for the CA EC private key. |
-| `CHAIN_MODE` | `default` | Chain assembly mode: `default` ($a \rightarrow b$), `<name>` (e.g. `c1` selects `/certs/chains/<name>.pem`), or `all` (concatenates all intermediate chains). |
+| `ROOTS` / `CHAINS` | `c1,c2` *(in chart)* | Comma-separated list of root CA / chain names. Auto-derives 2..10 ingresses and companion ports (single chain omits `all`). |
+| `ROOT_S_BYTES` | `0x10,0x20` *(in chart)* | Comma-separated exact scalars for root CAs. |
+| `CHAIN_MODE` | `default` | Primary chain assembly mode: `default` ($a \rightarrow b$), `<name>`, or `all`. |
 | `CHAINS_DIR` | `/certs/chains` | Directory containing pre-signed intermediate or cross-chain PEM files. |
 | `ROOTS_DIR` | `/certs/roots` | Directory containing root CA `.crt` and `.key` pairs for automatic intermediate signing. |
 | `EXTRA_CHAIN_PEM` | *empty* | Raw PEM certificate string to include in intermediate chain assembly. |
@@ -179,6 +181,7 @@ All tests are designed to execute cleanly inside ephemeral Docker containers wit
 - [`tests/test_full_docker_app.sh`](file:///Users/jsteel/Documents/antigravity/optimistic-bohr/tests/test_full_docker_app.sh): Full end-to-end integration test of the built image.
 - [`tests/test_cross_signed_chains.sh`](file:///Users/jsteel/Documents/antigravity/optimistic-bohr/tests/test_cross_signed_chains.sh): Tests intermediate cross-signing ($a \rightarrow b \rightarrow c_1 / c_2$) and multi-trust-anchor client verification.
 - [`tests/test_chain_modes.sh`](file:///Users/jsteel/Documents/antigravity/optimistic-bohr/tests/test_chain_modes.sh): Tests runtime `CHAIN_MODE` path resolution (`default`, named path `c1`, and `all`).
+- [`tests/test_multi_port_server.sh`](file:///Users/jsteel/Documents/antigravity/optimistic-bohr/tests/test_multi_port_server.sh): Tests dynamic multi-root derivation (`ROOTS=c1,c2`), companion `s_server` listeners, and single vs multi-chain port allocation.
 - [`tests/run_all_tests.sh`](file:///Users/jsteel/Documents/antigravity/optimistic-bohr/tests/run_all_tests.sh): Orchestrates all test scripts.
 
 To run all tests:

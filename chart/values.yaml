@@ -56,6 +56,8 @@ probes:
 env:
   S_BYTES: "0x01"
   CHAIN_MODE: "default"
+  ROOTS: "c1,c2"
+  ROOT_S_BYTES: "0x10,0x20"
   WWW_MODE: "WWW"
   CA_CURVE: "prime256v1"
   SERVER_CURVE: "prime256v1"

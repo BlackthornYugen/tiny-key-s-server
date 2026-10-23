@@ -2,5 +2,5 @@ apiVersion: v2
 name: tiny-key-s-server
 description: OpenSSL s_server testing tool for standard EC curves with small integers as private key scalars
 type: application
-version: 0.1.6
+version: 0.1.7
 appVersion: "latest"
