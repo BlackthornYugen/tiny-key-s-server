@@ -97,6 +97,20 @@ derive_partner_scalar() {
     printf "%s%02x" "$prefix" "$next_int"
 }
 
+unpad_hex() {
+    local hex="$1"
+    hex="${hex#0x}"
+    hex="${hex#0X}"
+    local unpadded
+    unpadded=$(echo "$hex" | sed 's/^0*//')
+    if [ -z "$unpadded" ]; then
+        unpadded="00"
+    elif [ $(( ${#unpadded} % 2 )) -ne 0 ]; then
+        unpadded="0$unpadded"
+    fi
+    echo "0x$unpadded"
+}
+
 # ------------------------------------------------------------------------------
 # Logging & Command Tracking
 # ------------------------------------------------------------------------------
@@ -194,11 +208,13 @@ else
             CA_SCALAR=$(derive_partner_scalar "$SERVER_SCALAR")
         fi
         
+        SERVER_SCALAR_DISPLAY=$(unpad_hex "$SERVER_SCALAR")
+        CA_SCALAR_DISPLAY=$(unpad_hex "$CA_SCALAR")
         SEED_TYPE="Exact Scalar 's' Bytes"
-        SEED_DISPLAY="Server: 0x$SERVER_SCALAR<br>CA:     0x$CA_SCALAR"
+        SEED_DISPLAY="Server: $SERVER_SCALAR_DISPLAY<br>CA:     $CA_SCALAR_DISPLAY"
         echo ">> Configured EC scalar 's' bytes:"
-        echo "   Server Key scalar: 0x$SERVER_SCALAR"
-        echo "   CA Key scalar:     0x$CA_SCALAR"
+        echo "   Server Key scalar: 0x$SERVER_SCALAR ($SERVER_SCALAR_DISPLAY)"
+        echo "   CA Key scalar:     0x$CA_SCALAR ($CA_SCALAR_DISPLAY)"
         
         # 1. Generate CA Private Key from scalar ASN.1
         CA_ASN1_CNF="$SERVE_DIR/asn1_ca.cnf"
@@ -737,9 +753,13 @@ cat > "$HTML_OUTPUT_FILE" <<'HTML_HEADER'
         <div class="card-title">CHAIN_MODE</div>
         <div class="card-value">__CHAIN_MODE__</div>
       </div>
-      <div class="card card-full">
+      <div class="card">
         <div class="card-title">S_BYTES</div>
-        <div class="card-value" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.95rem; line-height: 1.8; white-space: pre-wrap;">__SEED_DISPLAY__</div>
+        <div class="card-value" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.95rem; line-height: 1.5; white-space: pre-wrap;">__SEED_DISPLAY__</div>
+      </div>
+      <div class="card">
+        <div class="card-title">ROOTS</div>
+        <div class="card-value">__ROOTS__</div>
       </div>
     </div>
 
@@ -769,6 +789,8 @@ sed -i "s|__SERVER_SUBJECT__|$SERVER_SUBJECT|g" "$HTML_OUTPUT_FILE"
 sed -i "s|__DOMAINS__|$DOMAINS|g" "$HTML_OUTPUT_FILE"
 sed -i "s|__IPS__|$IPS|g" "$HTML_OUTPUT_FILE"
 sed -i "s|__CHAIN_MODE__|$CHAIN_MODE|g" "$HTML_OUTPUT_FILE"
+ROOTS_DISPLAY="${ROOTS_INPUT:-None}"
+sed -i "s|__ROOTS__|$ROOTS_DISPLAY|g" "$HTML_OUTPUT_FILE"
 
 # Append recorded commands
 step_num=1
