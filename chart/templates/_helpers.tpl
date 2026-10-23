@@ -33,3 +33,22 @@ If 0 chains: []
   {{- end -}}
   {{- toJson $chains -}}
 {{- end -}}
+
+{{/*
+Format ingress host for an extra chain.
+If host starts with a PR prefix (e.g. 'pr-1-', 'p1-', 'p-1-'), maintain the PR prefix first:
+e.g. pr-1-tiny-key-s-server.jskw.dev -> pr-1-c1-tiny-key-s-server.jskw.dev
+Otherwise:
+e.g. tiny-key-s-server.jskw.dev -> c1-tiny-key-s-server.jskw.dev
+*/}}
+{{- define "tiny-key-s-server.chainHost" -}}
+  {{- $chain := .chain -}}
+  {{- $host := .host -}}
+  {{- $prPrefix := regexFind "^p(r)?-?[0-9]+-" $host -}}
+  {{- if $prPrefix -}}
+    {{- $rest := trimPrefix $prPrefix $host -}}
+    {{- printf "%s%s-%s" $prPrefix $chain $rest -}}
+  {{- else -}}
+    {{- printf "%s-%s" $chain $host -}}
+  {{- end -}}
+{{- end -}}

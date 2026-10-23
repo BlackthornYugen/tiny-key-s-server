@@ -29,9 +29,10 @@ generated EC certificate chain via SSL-Passthrough:
 {{- range $idx, $chain := $extraChains }}
   [{{ $idx | add 1 }}] Chain: {{ $chain }} (Pod/Deployment: {{ $.Release.Name }}-chain-{{ $chain }})
   {{- range $.Values.ingress.hosts }}
-      Host:   {{ printf "%s-%s" $chain . }}
-      URL:    https://{{ printf "%s-%s" $chain . }}:8443
-      Verify: openssl s_client -connect {{ printf "%s-%s" $chain . }}:8443 -servername {{ printf "%s-%s" $chain . }} -showcerts
+  {{- $chainHost := include "tiny-key-s-server.chainHost" (dict "chain" $chain "host" .) }}
+      Host:   {{ $chainHost }}
+      URL:    https://{{ $chainHost }}:8443
+      Verify: openssl s_client -connect {{ $chainHost }}:8443 -servername {{ $chainHost }} -showcerts
   {{- end }}
 {{- end }}
 {{- end }}
