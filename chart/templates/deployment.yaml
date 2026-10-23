@@ -30,6 +30,7 @@ spec:
             scheme: {{ .Values.probes.liveness.scheme | default "HTTPS" }}
           initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds | default 5 }}
           periodSeconds: {{ .Values.probes.liveness.periodSeconds | default 10 }}
+          timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds | default 3 }}
         {{- end }}
         {{- if .Values.probes.readiness.enabled }}
         readinessProbe:
@@ -39,6 +40,7 @@ spec:
             scheme: {{ .Values.probes.readiness.scheme | default "HTTPS" }}
           initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds | default 3 }}
           periodSeconds: {{ .Values.probes.readiness.periodSeconds | default 5 }}
+          timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds | default 3 }}
         {{- end }}
         resources:
           {{- toYaml .Values.resources | nindent 10 }}

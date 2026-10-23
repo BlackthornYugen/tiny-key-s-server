@@ -11,8 +11,8 @@ metadata:
     release: {{ $.Release.Name }}
     chain: {{ $chain | quote }}
   annotations:
-    haproxy.org/server-ssl: "true"
     haproxy.org/ssl-passthrough: "true"
+    haproxy.org/check: "false"
     {{- with $.Values.ingress.extraAnnotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}

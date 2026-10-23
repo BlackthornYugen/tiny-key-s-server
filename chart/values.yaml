@@ -17,6 +17,7 @@ ingress:
   annotations:
     haproxy.org/server-ssl: "true"
     haproxy.org/ssl-passthrough: "false"
+    haproxy.org/check: "false"
   # Array of domains for the ingress
   hosts:
     - tiny-key-s-server.jskw.dev
