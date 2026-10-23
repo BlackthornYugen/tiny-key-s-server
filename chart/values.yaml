@@ -55,6 +55,7 @@ probes:
 # OpenSSL s_server configuration
 env:
   S_BYTES: "0x01"
+  CHAIN_MODE: "default"
   WWW_MODE: "WWW"
   CA_CURVE: "prime256v1"
   SERVER_CURVE: "prime256v1"

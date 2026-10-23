@@ -29,6 +29,14 @@ echo "--> 5. Running test_full_docker_app.sh..."
 "$SCRIPT_DIR/test_full_docker_app.sh"
 
 echo ""
+echo "--> 6. Running test_cross_signed_chains.sh..."
+"$SCRIPT_DIR/test_cross_signed_chains.sh"
+
+echo ""
+echo "--> 7. Running test_chain_modes.sh..."
+"$SCRIPT_DIR/test_chain_modes.sh"
+
+echo ""
 echo "=========================================================="
 echo " ALL TEST SUITES PASSED SUCCESSFULLY!"
 echo "=========================================================="

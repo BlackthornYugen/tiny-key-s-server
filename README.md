@@ -9,6 +9,7 @@ It generates a two-tier Elliptic Curve (EC) certificate chain (CA + Server), sig
 ## Features
 
 - **Dynamic EC Key & Chain Generation**: Generates a CA key & certificate, a server key & CSR, signs the server certificate using the CA with Subject Alternative Names (SANs), and bundles them into `fullchain.pem`.
+- **Cross-Signed & Multi-Path Chains**: Because EC keys $a$ (server) and $b$ (intermediate CA) are fully deterministic, intermediate key $b$ can be pre-signed or cross-signed by external roots ($b \rightarrow c_1$, $b \rightarrow c_2$). The server dynamically bundles certificates and serves either the default chain, a specific cross-signed path (`CHAIN_MODE=c1`), or all available paths combined (`CHAIN_MODE=all`).
 - **Exact Scalar `s` Bytes Input**: Directly accepts an EC private key scalar $s$ as a hex string (e.g., `0xdeadbeef1337` or `deadbeef...`) or small integer (e.g., `42`), embedding the exact hex scalar into the generated EC private key so that `openssl ec -text` displays your exact bytes under `priv:`.
 - **Configurable via Environment Variables**:
   - Scalars: `S_BYTES`, `SERVER_S_BYTES`, `CA_S_BYTES`.
@@ -72,6 +73,49 @@ docker run -p 4433:4433 \
 ```
 When `fullchain.pem` (or `tls.crt`) and `privkey.pem` (or `tls.key` / `server.key`) are present in `/certs`, the container inspects and serves them directly without generating new certificates.
 
+### 5. Multi-Path and Cross-Signed Chains ($a \rightarrow b \rightarrow c_1 / c_2$)
+
+Because keys $a$ (server, scalar $s$) and $b$ (CA, scalar $s+1$ or `CA_S_BYTES`) are deterministic, intermediate key $b$ can be pre-signed by external root CAs ($c_1, c_2, \dots$) ahead of time, or roots can be mounted to be signed automatically on startup.
+
+#### Providing Chains via Volume Mount
+Place cross-signed chain PEMs in `/certs/chains/`:
+- `/certs/chains/c1.pem` (contains $b$ signed by $c_1$, and optionally $c_1$)
+- `/certs/chains/c2.pem` (contains $b$ signed by $c_2$, and optionally $c_2$)
+
+```bash
+# Serve specific cross-signed path (a -> b_c1 -> c1)
+docker run -p 4433:4433 \
+  -e S_BYTES="0x01" \
+  -e CA_S_BYTES="0x02" \
+  -e CHAIN_MODE="c1" \
+  -v /path/to/chains:/certs/chains:ro \
+  ghcr.io/blackthornyugen/tiny-key-s-server:latest
+
+# Serve all paths concatenated in fullchain.pem (a -> b_c1 + b_c2)
+docker run -p 4433:4433 \
+  -e S_BYTES="0x01" \
+  -e CA_S_BYTES="0x02" \
+  -e CHAIN_MODE="all" \
+  -v /path/to/chains:/certs/chains:ro \
+  ghcr.io/blackthornyugen/tiny-key-s-server:latest
+```
+
+#### Providing Chains via Environment Variables
+For CI/CD or lightweight execution without volume mounts:
+```bash
+docker run -p 4433:4433 \
+  -e S_BYTES="0x01" \
+  -e CHAIN_MODE="all" \
+  -e EXTRA_CHAIN_PEM="$(cat extra_chain.pem)" \
+  ghcr.io/blackthornyugen/tiny-key-s-server:latest
+```
+
+#### Automatic Root Signing
+Mount external root CA certificates and private keys to `/certs/roots/`:
+- `/certs/roots/c1.crt` and `/certs/roots/c1.key`
+
+On boot, the container automatically generates an intermediate certificate for key $b$ signed by root $c_1$, and makes it available under `CHAIN_MODE="c1"` or `CHAIN_MODE="all"`.
+
 ---
 
 ## Connecting & Testing
@@ -103,6 +147,11 @@ openssl s_client -connect localhost:4433 -showcerts
 |---|---|---|
 | `S_BYTES` / `SERVER_S_BYTES` | *`0x01` in chart* | Exact integer (e.g. `1`, `42`) or hex scalar (`0xdeadbeef...`) for the server EC private key. |
 | `CA_S_BYTES` | *derived ($s+1$)* | Exact integer or hex scalar for the CA EC private key. |
+| `CHAIN_MODE` | `default` | Chain assembly mode: `default` ($a \rightarrow b$), `<name>` (e.g. `c1` selects `/certs/chains/<name>.pem`), or `all` (concatenates all intermediate chains). |
+| `CHAINS_DIR` | `/certs/chains` | Directory containing pre-signed intermediate or cross-chain PEM files. |
+| `ROOTS_DIR` | `/certs/roots` | Directory containing root CA `.crt` and `.key` pairs for automatic intermediate signing. |
+| `EXTRA_CHAIN_PEM` | *empty* | Raw PEM certificate string to include in intermediate chain assembly. |
+| `CHAIN_FILE` | *empty* | Path to a specific intermediate chain PEM file to include. |
 | `WWW_MODE` | `WWW` | Mode for `openssl s_server` (`WWW` serves files, `www` serves built-in status page, `HTTP` includes headers). |
 | `PORT` | `4433` | TCP port `s_server` listens on. |
 | `CA_CURVE` | `prime256v1` | Elliptic curve for CA key. |
@@ -128,6 +177,8 @@ All tests are designed to execute cleanly inside ephemeral Docker containers wit
 - [`tests/test_s_server_behavior.sh`](file:///Users/jsteel/Documents/antigravity/optimistic-bohr/tests/test_s_server_behavior.sh): Tests `-WWW` and `-www` response semantics with `curl`.
 - [`tests/test_volume_override.sh`](file:///Users/jsteel/Documents/antigravity/optimistic-bohr/tests/test_volume_override.sh): Tests mounting an external volume containing pre-existing certificates.
 - [`tests/test_full_docker_app.sh`](file:///Users/jsteel/Documents/antigravity/optimistic-bohr/tests/test_full_docker_app.sh): Full end-to-end integration test of the built image.
+- [`tests/test_cross_signed_chains.sh`](file:///Users/jsteel/Documents/antigravity/optimistic-bohr/tests/test_cross_signed_chains.sh): Tests intermediate cross-signing ($a \rightarrow b \rightarrow c_1 / c_2$) and multi-trust-anchor client verification.
+- [`tests/test_chain_modes.sh`](file:///Users/jsteel/Documents/antigravity/optimistic-bohr/tests/test_chain_modes.sh): Tests runtime `CHAIN_MODE` path resolution (`default`, named path `c1`, and `all`).
 - [`tests/run_all_tests.sh`](file:///Users/jsteel/Documents/antigravity/optimistic-bohr/tests/run_all_tests.sh): Orchestrates all test scripts.
 
 To run all tests:

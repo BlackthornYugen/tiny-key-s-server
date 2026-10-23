@@ -35,6 +35,13 @@ SERVER_DAYS="${SERVER_DAYS:-365}"
 # Optional mounted volume directory
 CERTS_DIR="${CERTS_DIR:-/certs}"
 
+# Chains and Multi-Path / Cross-Signing Configuration
+CHAIN_MODE="${CHAIN_MODE:-default}" # default, all, or specific path name (e.g. c1, c2)
+CHAINS_DIR="${CHAINS_DIR:-$CERTS_DIR/chains}"
+ROOTS_DIR="${ROOTS_DIR:-$CERTS_DIR/roots}"
+EXTRA_CHAIN_PEM="${EXTRA_CHAIN_PEM:-}"
+CHAIN_FILE="${CHAIN_FILE:-}"
+
 # Extra s_server arguments
 EXTRA_S_SERVER_ARGS="${EXTRA_S_SERVER_ARGS:-}"
 
@@ -240,6 +247,10 @@ EOF
     run_recorded "Generate CA Self-Signed Root Certificate" \
         "openssl req -new -x509 -key '$SERVE_DIR/ca.key.pem' -out '$SERVE_DIR/ca.crt.pem' -days '$CA_DAYS' -subj '$CA_SUBJECT' -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign'"
 
+    # Generate Intermediate CA CSR (for cross-signing or chaining up to external roots)
+    run_recorded "Generate CA Certificate Signing Request (CSR) for key b" \
+        "openssl req -new -key '$SERVE_DIR/ca.key.pem' -out '$SERVE_DIR/ca.csr.pem' -subj '$CA_SUBJECT'"
+
     # Generate Server CSR (Certificate Signing Request)
     run_recorded "Generate Server Certificate Signing Request (CSR)" \
         "openssl req -new -key '$SERVE_DIR/server.key.pem' -out '$SERVE_DIR/server.csr.pem' -subj '$SERVER_SUBJECT'"
@@ -281,15 +292,129 @@ EOF
     run_recorded "Sign Server Certificate with CA" \
         "openssl x509 -req -in '$SERVE_DIR/server.csr.pem' -CA '$SERVE_DIR/ca.crt.pem' -CAkey '$SERVE_DIR/ca.key.pem' -CAcreateserial -out '$SERVE_DIR/server.crt.pem' -days '$SERVER_DAYS' -extfile '$EXT_FILE'"
 
-    # Assemble Full Certificate Chain
-    run_recorded "Assemble Certificate Chain (server.crt + ca.crt)" \
-        "cat '$SERVE_DIR/server.crt.pem' '$SERVE_DIR/ca.crt.pem' > '$SERVE_DIR/fullchain.pem'"
+    # --------------------------------------------------------------------------
+    # Cross-Signing & Certificate Chain Assembly
+    # --------------------------------------------------------------------------
+    mkdir -p "$SERVE_DIR/chains"
 
-    # Verify Certificate Chain
-    run_recorded "Verify Server Certificate with CA Certificate" \
-        "openssl verify -CAfile '$SERVE_DIR/ca.crt.pem' '$SERVE_DIR/server.crt.pem'"
-    run_recorded "Verify Full Chain with CA Certificate" \
-        "openssl verify -CAfile '$SERVE_DIR/ca.crt.pem' '$SERVE_DIR/fullchain.pem'"
+    # 1. Check for external/mounted root CAs in $ROOTS_DIR and auto-sign CA key b
+    if [ -d "$ROOTS_DIR" ]; then
+        for root_key in "$ROOTS_DIR"/*.key "$ROOTS_DIR"/*.key.pem; do
+            [ -f "$root_key" ] || continue
+            root_base=$(basename "$root_key")
+            root_name="${root_base%.key.pem}"
+            root_name="${root_name%.key}"
+
+            root_crt=""
+            for crt_cand in "$ROOTS_DIR/$root_name.crt" "$ROOTS_DIR/$root_name.crt.pem" "$ROOTS_DIR/$root_name.pem"; do
+                if [ -f "$crt_cand" ]; then
+                    root_crt="$crt_cand"
+                    break
+                fi
+            done
+
+            if [ -n "$root_crt" ]; then
+                echo ">> Found Root CA '$root_name' ($root_crt). Signing Intermediate B..."
+                INTER_EXT_FILE="$SERVE_DIR/chains/inter_ext_${root_name}.cnf"
+                cat > "$INTER_EXT_FILE" <<EOF
+basicConstraints = critical,CA:TRUE,pathlen:0
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
+EOF
+                run_recorded "Sign Intermediate B with Root CA '$root_name'" \
+                    "openssl x509 -req -in '$SERVE_DIR/ca.csr.pem' -CA '$root_crt' -CAkey '$root_key' -CAcreateserial -out '$SERVE_DIR/chains/${root_name}.pem' -days '$CA_DAYS' -extfile '$INTER_EXT_FILE'"
+                # Append root cert to this chain path
+                cat "$root_crt" >> "$SERVE_DIR/chains/${root_name}.pem"
+            fi
+        done
+    fi
+
+    # 2. Check for pre-existing chain files in $CHAINS_DIR
+    if [ -d "$CHAINS_DIR" ]; then
+        for cfile in "$CHAINS_DIR"/*.pem "$CHAINS_DIR"/*.crt; do
+            [ -f "$cfile" ] || continue
+            cbase=$(basename "$cfile")
+            cname="${cbase%.crt}"
+            cname="${cname%.pem}"
+            cname="${cname%.chain}"
+            cp "$cfile" "$SERVE_DIR/chains/${cname}.pem"
+            echo ">> Loaded chain file from volume: $cfile as $cname"
+        done
+    fi
+
+    # 3. Check for EXTRA_CHAIN_PEM env var
+    if [ -n "$EXTRA_CHAIN_PEM" ]; then
+        echo "$EXTRA_CHAIN_PEM" > "$SERVE_DIR/chains/extra.pem"
+        echo ">> Loaded inline EXTRA_CHAIN_PEM into $SERVE_DIR/chains/extra.pem"
+    fi
+
+    # 4. Check for CHAIN_FILE env var
+    if [ -n "$CHAIN_FILE" ] && [ -f "$CHAIN_FILE" ]; then
+        cp "$CHAIN_FILE" "$SERVE_DIR/chains/custom.pem"
+        echo ">> Loaded CHAIN_FILE $CHAIN_FILE into $SERVE_DIR/chains/custom.pem"
+    fi
+
+    # 5. Assemble chain according to CHAIN_MODE (default, all, or named path)
+    echo ">> Active CHAIN_MODE: $CHAIN_MODE"
+    case "$CHAIN_MODE" in
+        all)
+            # Concatenate all available chains in $SERVE_DIR/chains/*.pem
+            CHAIN_CANDIDATES=("$SERVE_DIR"/chains/*.pem)
+            if [ -e "${CHAIN_CANDIDATES[0]}" ]; then
+                run_recorded "Assemble Multi-Path Intermediate Chain (all paths)" \
+                    "cat '$SERVE_DIR'/chains/*.pem > '$SERVE_DIR/chain.pem'"
+            else
+                run_recorded "Assemble Default Chain (ca.crt.pem)" \
+                    "cp '$SERVE_DIR/ca.crt.pem' '$SERVE_DIR/chain.pem'"
+            fi
+            ;;
+        default|"")
+            run_recorded "Assemble Default Intermediate Chain (ca.crt.pem)" \
+                "cp '$SERVE_DIR/ca.crt.pem' '$SERVE_DIR/chain.pem'"
+            ;;
+        *)
+            # Specific path name: e.g. c1, c2, extra, custom
+            SPECIFIC_CHAIN=""
+            for cand in "$SERVE_DIR/chains/$CHAIN_MODE.pem" "$SERVE_DIR/chains/$CHAIN_MODE.crt" "$SERVE_DIR/chains/$CHAIN_MODE.chain.pem" "$SERVE_DIR/chains/$CHAIN_MODE"; do
+                if [ -f "$cand" ]; then
+                    SPECIFIC_CHAIN="$cand"
+                    break
+                fi
+            done
+            if [ -n "$SPECIFIC_CHAIN" ]; then
+                run_recorded "Select Specific Chain Path '$CHAIN_MODE'" \
+                    "cp '$SPECIFIC_CHAIN' '$SERVE_DIR/chain.pem'"
+            else
+                echo "Warning: CHAIN_MODE='$CHAIN_MODE' specified but no matching chain file found in $SERVE_DIR/chains/. Falling back to ca.crt.pem"
+                run_recorded "Assemble Default Chain (ca.crt.pem fallback)" \
+                    "cp '$SERVE_DIR/ca.crt.pem' '$SERVE_DIR/chain.pem'"
+            fi
+            ;;
+    esac
+
+    # Assemble Full Certificate Chain (server.crt.pem + chain.pem)
+    run_recorded "Assemble Full Certificate Chain (server.crt.pem + chain.pem)" \
+        "cat '$SERVE_DIR/server.crt.pem' '$SERVE_DIR/chain.pem' > '$SERVE_DIR/fullchain.pem'"
+
+    # Verify Certificate Chain Structure
+    if [ "$CHAIN_MODE" = "default" ] || [ ! -d "$SERVE_DIR/chains" ] || [ -z "$(ls -A "$SERVE_DIR/chains" 2>/dev/null)" ]; then
+        run_recorded "Verify Server Certificate with CA Certificate" \
+            "openssl verify -CAfile '$SERVE_DIR/ca.crt.pem' '$SERVE_DIR/server.crt.pem'"
+        run_recorded "Verify Full Chain with CA Certificate" \
+            "openssl verify -CAfile '$SERVE_DIR/ca.crt.pem' -untrusted '$SERVE_DIR/chain.pem' '$SERVE_DIR/server.crt.pem'"
+    else
+        # If external roots exist, verify against root
+        if [ -d "$ROOTS_DIR" ]; then
+            for r_crt in "$ROOTS_DIR"/*.crt "$ROOTS_DIR"/*.pem; do
+                [ -f "$r_crt" ] || continue
+                run_recorded "Verify Chain against Root CA $(basename "$r_crt")" \
+                    "openssl verify -CAfile '$r_crt' -untrusted '$SERVE_DIR/chain.pem' '$SERVE_DIR/server.crt.pem' || true"
+            done
+        fi
+        run_recorded "Verify Full Chain with CA Certificate" \
+            "openssl verify -CAfile '$SERVE_DIR/ca.crt.pem' -untrusted '$SERVE_DIR/chain.pem' '$SERVE_DIR/server.crt.pem' || true"
+    fi
 
     # Decode Certificate Details
     run_recorded "Decode Server Certificate Details" \
@@ -514,6 +639,10 @@ cat > "$HTML_OUTPUT_FILE" <<'HTML_HEADER'
         <div class="card-title">IPS</div>
         <div class="card-value">__IPS__</div>
       </div>
+      <div class="card">
+        <div class="card-title">CHAIN_MODE</div>
+        <div class="card-value">__CHAIN_MODE__</div>
+      </div>
       <div class="card card-full">
         <div class="card-title">S_BYTES</div>
         <div class="card-value" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.95rem; line-height: 1.8; white-space: pre-wrap;">__SEED_DISPLAY__</div>
@@ -523,6 +652,7 @@ cat > "$HTML_OUTPUT_FILE" <<'HTML_HEADER'
     <div class="section-title">Serving Files & PEM Artifacts</div>
     <div class="files-list">
       <a class="file-link" href="fullchain.pem" download>&#128196; fullchain.pem</a>
+      <a class="file-link" href="chain.pem" download>&#128196; chain.pem</a>
       <a class="file-link" href="server.crt.pem" download>&#128196; server.crt.pem</a>
       <a class="file-link" href="server.key.pem" download>&#128196; server.key.pem</a>
       <a class="file-link" href="ca.crt.pem" download>&#128196; ca.crt.pem</a>
@@ -544,6 +674,7 @@ sed -i "s|__CA_SUBJECT__|$CA_SUBJECT|g" "$HTML_OUTPUT_FILE"
 sed -i "s|__SERVER_SUBJECT__|$SERVER_SUBJECT|g" "$HTML_OUTPUT_FILE"
 sed -i "s|__DOMAINS__|$DOMAINS|g" "$HTML_OUTPUT_FILE"
 sed -i "s|__IPS__|$IPS|g" "$HTML_OUTPUT_FILE"
+sed -i "s|__CHAIN_MODE__|$CHAIN_MODE|g" "$HTML_OUTPUT_FILE"
 
 # Append recorded commands
 step_num=1
@@ -610,11 +741,18 @@ echo "==================================================================="
 echo " Launching openssl s_server on port $PORT with -$WWW_MODE"
 echo "==================================================================="
 
+CERT_FILE="$SERVE_DIR/server.crt.pem"
+[ -f "$CERT_FILE" ] || CERT_FILE="$SERVE_DIR/fullchain.pem"
+
+CHAIN_FILE_ARG="$SERVE_DIR/chain.pem"
+[ -f "$CHAIN_FILE_ARG" ] || CHAIN_FILE_ARG="$SERVE_DIR/fullchain.pem"
+
 S_SERVER_CMD=(
     openssl s_server
     -accept "$PORT"
     -key "$SERVE_DIR/server.key.pem"
-    -cert "$SERVE_DIR/fullchain.pem"
+    -cert "$CERT_FILE"
+    -cert_chain "$CHAIN_FILE_ARG"
     "-$WWW_MODE"
 )
 
