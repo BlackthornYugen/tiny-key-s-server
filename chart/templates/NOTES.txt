@@ -51,8 +51,16 @@ generated EC certificate chain via SSL-Passthrough:
 {{- if eq (.Values.mitmproxy.mode | default "mitmweb") "mitmweb" }}
   Web Inspection UI:
 {{- if and .Values.mitmproxy.ingress .Values.mitmproxy.ingress.enabled }}
-    {{- range .Values.mitmproxy.ingress.hosts }}
-    URL:          https://{{ . }}{{ if $.Values.mitmproxy.webPassword }}/?token={{ $.Values.mitmproxy.webPassword }}{{ end }}
+    {{- $hasCustomHosts := and .Values.mitmproxy.ingress.hosts (ne (index .Values.mitmproxy.ingress.hosts 0) "") -}}
+    {{- if $hasCustomHosts }}
+      {{- range .Values.mitmproxy.ingress.hosts }}
+    URL:          https://{{ . }}:8443{{ if $.Values.mitmproxy.webPassword }}/?token={{ $.Values.mitmproxy.webPassword }}{{ end }} (or https://{{ . }})
+      {{- end }}
+    {{- else }}
+      {{- range .Values.ingress.hosts }}
+      {{- $mHost := include "tiny-key-s-server.mitmHost" (dict "host" .) }}
+    URL:          https://{{ $mHost }}:8443{{ if $.Values.mitmproxy.webPassword }}/?token={{ $.Values.mitmproxy.webPassword }}{{ end }} (or https://{{ $mHost }})
+      {{- end }}
     {{- end }}
 {{- else }}
     Port-Forward: kubectl port-forward -n {{ .Release.Namespace }} svc/{{ .Release.Name }} {{ .Values.mitmproxy.service.webPort | default 8081 }}:{{ .Values.mitmproxy.service.webPort | default 8081 }}

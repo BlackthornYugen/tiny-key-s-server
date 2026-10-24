@@ -52,3 +52,20 @@ e.g. tiny-key-s-server.jskw.dev -> c1-tiny-key-s-server.jskw.dev
     {{- printf "%s-%s" $chain $host -}}
   {{- end -}}
 {{- end -}}
+
+{{/*
+Format ingress host for mitmweb UI.
+e.g. pr-2-tiny-key-s-server.jskw.dev -> pr-2-mitm-tiny-key-s-server.jskw.dev
+Otherwise:
+e.g. tiny-key-s-server.jskw.dev -> mitm-tiny-key-s-server.jskw.dev
+*/}}
+{{- define "tiny-key-s-server.mitmHost" -}}
+  {{- $host := .host -}}
+  {{- $prPrefix := regexFind "^p(r)?-?[0-9]+-" $host -}}
+  {{- if $prPrefix -}}
+    {{- $rest := trimPrefix $prPrefix $host -}}
+    {{- printf "%smitm-%s" $prPrefix $rest -}}
+  {{- else -}}
+    {{- printf "mitm-%s" $host -}}
+  {{- end -}}
+{{- end -}}
