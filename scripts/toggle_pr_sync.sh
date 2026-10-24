@@ -49,7 +49,7 @@ ensure_appset_ignore_differences() {
 
 init_helm_release_record() {
   local target_ns
-  target_ns=$(kubectl get application "${APP_NAME}" -n "${NAMESPACE}" -o jsonpath='{.spec.destination.namespace}' 2>/dev/null || echo "gitea")
+  target_ns=$(kubectl get application "${APP_NAME}" -n "${NAMESPACE}" -o jsonpath='{.spec.destination.namespace}' 2>/dev/null || echo "tiny-key-s-server-pr-${PR_NUM}")
   
   echo ">> Extracting existing deployment parameters from ArgoCD Application '${APP_NAME}'..."
   local helm_set_args
@@ -108,13 +108,14 @@ case "$ACTION" in
     echo ">> Disabling automated sync for '${APP_NAME}'..."
     kubectl patch application "${APP_NAME}" -n "${NAMESPACE}" --type=merge -p '{"spec":{"syncPolicy":null}}'
     init_helm_release_record
+    target_ns=$(kubectl get application "${APP_NAME}" -n "${NAMESPACE}" -o jsonpath='{.spec.destination.namespace}' 2>/dev/null || echo "tiny-key-s-server-pr-${PR_NUM}")
     echo ""
     echo "=========================================================================================="
     echo " Auto-sync DISABLED for '${APP_NAME}'"
     echo " Existing parameters adopted into Helm. You can now run clean upgrade commands:"
     echo ""
-    echo "   helm upgrade ${APP_NAME} ./chart -n gitea --reuse-values --set mitmproxy.enabled=true"
-    echo "   helm upgrade ${APP_NAME} ./chart -n gitea --reuse-values --set mitmproxy.serverCa.chainMode=c1"
+    echo "   helm upgrade ${APP_NAME} ./chart -n ${target_ns} --reuse-values --set mitmproxy.enabled=true"
+    echo "   helm upgrade ${APP_NAME} ./chart -n ${target_ns} --reuse-values --set mitmproxy.serverCa.chainMode=c1"
     echo "=========================================================================================="
     ;;
   enable)
