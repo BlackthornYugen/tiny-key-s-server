@@ -4,6 +4,9 @@ metadata:
   name: tiny-key-s-server-prs
   namespace: argocd
 spec:
+  ignoreApplicationDifferences:
+    - jsonPointers:
+        - /spec/syncPolicy
   generators:
     - pullRequest:
         gitea:
