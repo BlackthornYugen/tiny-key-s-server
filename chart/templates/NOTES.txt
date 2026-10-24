@@ -4,11 +4,15 @@
 Release:   {{ .Release.Name }}
 Namespace: {{ .Release.Namespace }}
 
+{{- $publicPort := include "tiny-key-s-server.publicPort" . | int }}
+{{- $portSuffix := ternary "" (printf ":%d" $publicPort) (eq $publicPort 443) }}
+
 1. Default Ingress (Browser UI):
 --------------------------------------------------------------------------------
 {{- if .Values.ingress.enabled }}
   {{- range .Values.ingress.hosts }}
-  URL: https://{{ . }}:8443/index.html (or https://{{ . }})
+  URL:    https://{{ . }}{{ $portSuffix }}/index.html
+  Curl:   curl https://{{ . }}{{ $portSuffix }}/index.html
   {{- end }}
   TLS: Terminated by Ingress controller using default cluster SSL (*.jskw.dev).
        Standard web browsers can view the audit report with a trusted padlock.
@@ -31,8 +35,8 @@ generated EC certificate chain via SSL-Passthrough:
   {{- range $.Values.ingress.hosts }}
   {{- $chainHost := include "tiny-key-s-server.chainHost" (dict "chain" $chain "host" .) }}
       Host:   {{ $chainHost }}
-      URL:    https://{{ $chainHost }}:8443
-      Verify: openssl s_client -connect {{ $chainHost }}:8443 -servername {{ $chainHost }} -showcerts
+      URL:    https://{{ $chainHost }}{{ $portSuffix }}
+      Verify: openssl s_client -connect {{ $chainHost }}:{{ $publicPort }} -servername {{ $chainHost }} -showcerts
   {{- end }}
 {{- end }}
 {{- end }}

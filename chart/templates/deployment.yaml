@@ -47,12 +47,14 @@ spec:
         env:
         - name: PORT
           value: {{ .Values.service.targetPort | default 4433 | quote }}
+        - name: PUBLIC_PORT
+          value: {{ include "tiny-key-s-server.publicPort" . | quote }}
         {{- if and .Values.ingress.enabled .Values.ingress.hosts }}
         - name: DOMAINS
           value: {{ printf "%s,localhost" (join "," .Values.ingress.hosts) | quote }}
         {{- end }}
         {{- range $key, $val := .Values.env }}
-        {{- if or (not $.Values.ingress.enabled) (ne $key "DOMAINS") }}
+        {{- if and (ne $key "PUBLIC_PORT") (or (not $.Values.ingress.enabled) (ne $key "DOMAINS")) }}
         - name: {{ $key }}
           value: {{ $val | quote }}
         {{- end }}

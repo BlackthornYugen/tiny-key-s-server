@@ -13,6 +13,12 @@ cd "$SERVE_DIR"
 # Configuration & Defaults
 # ------------------------------------------------------------------------------
 PORT="${PORT:-${S_SERVER_PORT:-4433}}"
+PUBLIC_PORT="${PUBLIC_PORT:-443}"
+if [ "$PUBLIC_PORT" = "443" ]; then
+    PUBLIC_PORT_SUFFIX=""
+else
+    PUBLIC_PORT_SUFFIX=":${PUBLIC_PORT}"
+fi
 WWW_MODE="${WWW_MODE:-${SERVER_MODE:-WWW}}" # WWW, www, or HTTP
 
 # Curves
@@ -1024,7 +1030,7 @@ cat >> "$HTML_OUTPUT_FILE" <<EOF
       <div class="step-header"><span>Dedicated Chain Endpoints</span></div>
       <div class="step-body">
         <pre><span class="cmd-line"># Primary Endpoint (Default Browser / Web UI)</span>
-Host: ${PRIMARY_HOST}:${PORT}
+Host: ${PRIMARY_HOST}${PUBLIC_PORT_SUFFIX}
 Chain Mode: $CHAIN_MODE
 EOF
 
@@ -1037,7 +1043,7 @@ if [ -d "$SERVE_DIR/chains" ]; then
 
 <span class="cmd-line"># Endpoint: Chain '$cb' (Dedicated Pod & Ingress)</span>
 Domain: ${ch_host}
-openssl s_client -connect ${ch_host}:8443 -showcerts
+openssl s_client -connect ${ch_host}:${PUBLIC_PORT} -showcerts
 EOF
     done
     if [ -f "$SERVE_DIR/chains/all.pem" ]; then
@@ -1046,7 +1052,7 @@ EOF
 
 <span class="cmd-line"># Endpoint: Combined Chain 'all' (Dedicated Pod & Ingress)</span>
 Domain: ${all_host}
-openssl s_client -connect ${all_host}:8443 -showcerts
+openssl s_client -connect ${all_host}:${PUBLIC_PORT} -showcerts
 EOF
     fi
 fi
@@ -1062,13 +1068,13 @@ cat >> "$HTML_OUTPUT_FILE" <<EOF
     <div class="step-box">
       <div class="step-header"><span>TLS Client Commands</span></div>
       <div class="step-body">
-        <pre><span class="cmd-line"># Connect and verify with OpenSSL s_client</span>
+        <pre><span class="cmd-line"># Public Ingress Endpoint</span>
+curl -k https://${PRIMARY_HOST}${PUBLIC_PORT_SUFFIX}/index.html
+openssl s_client -connect ${PRIMARY_HOST}:${PUBLIC_PORT} -servername ${PRIMARY_HOST} -showcerts
+
+<span class="cmd-line"># Local / In-Cluster Verification</span>
 openssl s_client -connect localhost:$PORT -showcerts -CAfile ca.crt.pem
-
-# Fetch page using curl trusting generated CA
 curl --cacert ca.crt.pem https://localhost:$PORT/index.html
-
-# Fetch page with insecure flag
 curl -k https://localhost:$PORT/index.html</pre>
       </div>
     </div>
