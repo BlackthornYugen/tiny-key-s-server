@@ -18,6 +18,8 @@ ingress:
     haproxy.org/server-ssl: "true"
     haproxy.org/ssl-passthrough: "false"
     haproxy.org/check: "false"
+    haproxy.org/backend-config-snippet: |
+      http-request redirect location /index.html code 302 if { path / }
   # Array of domains for the ingress
   hosts:
     - tiny-key-s-server.jskw.dev
