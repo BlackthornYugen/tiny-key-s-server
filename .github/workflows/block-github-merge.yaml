@@ -1,0 +1,20 @@
+name: Prevent GitHub PR Merges
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  block-merge:
+    name: Block Merge on Mirror
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check server and block merge on GitHub
+        run: |
+          if [ "${{ github.server_url }}" = "https://github.com" ]; then
+            echo "::error title=Merges Disabled on GitHub::This repository is a downstream mirror of Gitea (https://git.tower.jskw.dev/webapps/tiny-key-s-server). Pull requests must be reviewed and merged on Gitea. Merging directly on GitHub is disabled."
+            exit 1
+          else
+            echo "Running on Gitea Actions (${{ github.server_url }}). Merge block bypassed."
+            exit 0
+          fi
