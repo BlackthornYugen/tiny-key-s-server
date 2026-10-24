@@ -71,7 +71,24 @@ cat review_comment.md | ./scripts/comment_pr.py 1
 
 ---
 
-### 3. `toggle_pr_sync.sh`
+### 4. `check_comments.py`
+Inspects and displays comments posted on Gitea pull requests or issues.
+
+**Usage:**
+```bash
+# View comments on the latest open PR
+./scripts/check_comments.py
+
+# View comments on a specific PR
+./scripts/check_comments.py 3
+
+# View comments across recent PRs
+./scripts/check_comments.py --all
+```
+
+---
+
+### 5. `toggle_pr_sync.sh`
 Enables, disables, or checks ArgoCD automated synchronization for a PR preview application. Automatically configures the `ApplicationSet` to ignore `syncPolicy` changes so manual Helm upgrades aren't reverted.
 
 **Usage:**

@@ -4,7 +4,7 @@ Utility script to post a comment on a Pull Request (or Issue) on Gitea for webap
 
 Usage:
     ./scripts/comment_pr.py 1 -b "Comment text"
-    ./scripts/comment_pr.py 1 -f comment.md
+    ./scripts/comment_pr.py 1 --file comment.md
     cat comment.md | ./scripts/comment_pr.py 1
 """
 import argparse
@@ -21,19 +21,19 @@ ENV_FILE = ROOT_DIR / ".env"
 def load_env():
     env = {}
     if ENV_FILE.exists():
-        with open(ENV_FILE, "r") as f:
-            for line in f:
+        with open(ENV_FILE, "r") as env_file:
+            for line in env_file:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    env[k.strip()] = v.strip().strip("\"'")
+                    key, value = line.split("=", 1)
+                    env[key.strip()] = value.strip().strip("\"'")
     return env
 
 def main():
     parser = argparse.ArgumentParser(description="Post a comment on a Gitea Pull Request")
     parser.add_argument("pr_number", type=int, nargs="?", default=1, help="PR or issue number (default: 1)")
     parser.add_argument("-b", "--body", help="Comment body text")
-    parser.add_argument("-f", "--file", help="Path to markdown file containing comment body")
+    parser.add_argument("-f", "--file", dest="file_path", help="Path to markdown file containing comment body")
     args = parser.parse_args()
 
     env = load_env()
@@ -45,13 +45,13 @@ def main():
     comment_text = ""
     if args.body:
         comment_text = args.body
-    elif args.file:
-        with open(args.file, "r") as f:
-            comment_text = f.read()
+    elif args.file_path:
+        with open(args.file_path, "r") as file_handle:
+            comment_text = file_handle.read()
     elif not sys.stdin.isatty():
         comment_text = sys.stdin.read()
     else:
-        print("Error: No comment body provided. Use -b, -f, or pipe via stdin.", file=sys.stderr)
+        print("Error: No comment body provided. Use -b, --file, or pipe via stdin.", file=sys.stderr)
         sys.exit(1)
 
     if not comment_text.strip():
@@ -75,16 +75,16 @@ def main():
     )
 
     try:
-        with urllib.request.urlopen(req) as resp:
-            data = json.loads(resp.read().decode())
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
             comment_id = data.get("id")
             html_url = data.get("html_url")
             print(f"Successfully posted comment on PR #{args.pr_number} (ID: {comment_id})")
             if html_url:
                 print(f"URL: {html_url}")
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode()
-        print(f"Error ({e.code}): {error_body}", file=sys.stderr)
+    except urllib.error.HTTPError as http_error:
+        error_body = http_error.read().decode()
+        print(f"Error ({http_error.code}): {error_body}", file=sys.stderr)
         sys.exit(1)
 
 if __name__ == "__main__":

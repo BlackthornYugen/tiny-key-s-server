@@ -28,7 +28,7 @@ def get_current_branch():
         ).decode().strip()
         return out
     except Exception:
-        return "add_mitmproxy_sidecar_container"
+        return "feat/utility-scripts"
 
 def get_latest_commit_title():
     try:
@@ -44,12 +44,12 @@ def get_latest_commit_title():
 def load_env():
     env = {}
     if ENV_FILE.exists():
-        with open(ENV_FILE, "r") as f:
-            for line in f:
+        with open(ENV_FILE, "r") as env_file:
+            for line in env_file:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    env[k.strip()] = v.strip().strip("\"'")
+                    key, value = line.split("=", 1)
+                    env[key.strip()] = value.strip().strip("\"'")
     return env
 
 def main():
@@ -93,27 +93,27 @@ def main():
     )
 
     try:
-        with urllib.request.urlopen(req) as resp:
-            data = json.loads(resp.read().decode())
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
             pr_num = data.get("number")
             pr_url = data.get("html_url")
             print(f"Successfully created PR #{pr_num}: {pr_url}")
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode()
-        if e.code == 409:
+    except urllib.error.HTTPError as http_error:
+        error_body = http_error.read().decode()
+        if http_error.code == 409:
             print(f"Notice: A pull request for '{head_branch}' -> '{base_branch}' may already exist.")
             # Try to fetch existing PR
             try:
                 list_req = urllib.request.Request(f"{api_url}?state=open", headers=headers)
-                with urllib.request.urlopen(list_req) as list_resp:
-                    pulls = json.loads(list_resp.read().decode())
-                    for p in pulls:
-                        if p.get("head", {}).get("ref") == head_branch:
-                            print(f"Existing PR #{p.get('number')}: {p.get('html_url')}")
+                with urllib.request.urlopen(list_req) as list_response:
+                    pulls = json.loads(list_response.read().decode())
+                    for pull in pulls:
+                        if pull.get("head", {}).get("ref") == head_branch:
+                            print(f"Existing PR #{pull.get('number')}: {pull.get('html_url')}")
                             return
             except Exception:
                 pass
-        print(f"Error ({e.code}): {error_body}", file=sys.stderr)
+        print(f"Error ({http_error.code}): {error_body}", file=sys.stderr)
         sys.exit(1)
 
 if __name__ == "__main__":

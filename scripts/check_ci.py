@@ -17,8 +17,8 @@ ENV_FILE = ROOT_DIR / ".env"
 
 token = None
 if ENV_FILE.exists():
-    with open(ENV_FILE, "r") as f:
-        for line in f:
+    with open(ENV_FILE, "r") as env_file:
+        for line in env_file:
             if line.startswith("GITEA_TOKEN="):
                 token = line.split("=", 1)[1].strip().strip("\"'")
 
@@ -31,21 +31,21 @@ headers = {"Authorization": f"token {token}"}
 
 def get_json(url):
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req) as resp:
-        return json.loads(resp.read().decode())
+    with urllib.request.urlopen(req) as response:
+        return json.loads(response.read().decode())
 
 def list_runs(limit=5):
     data = get_json(f"{BASE_URL}/runs")
     runs = data.get("workflow_runs", [])[:limit]
     print(f"{'RUN ID':<8} {'STATUS':<14} {'CONCLUSION':<12} {'HEAD SHA':<10} {'TITLE'}")
     print("-" * 75)
-    for r in runs:
-        rid = r.get("id")
-        status = r.get("status") or "-"
-        conclusion = r.get("conclusion") or "-"
-        sha = (r.get("head_sha") or "")[:8]
-        title = r.get("display_title") or ""
-        print(f"#{rid:<7} {status:<14} {conclusion:<12} {sha:<10} {title}")
+    for run in runs:
+        run_id = run.get("id")
+        status = run.get("status") or "-"
+        conclusion = run.get("conclusion") or "-"
+        sha = (run.get("head_sha") or "")[:8]
+        title = run.get("display_title") or ""
+        print(f"#{run_id:<7} {status:<14} {conclusion:<12} {sha:<10} {title}")
 
 def check_run(run_id):
     run = get_json(f"{BASE_URL}/runs/{run_id}")
@@ -53,8 +53,8 @@ def check_run(run_id):
     jobs_data = get_json(f"{BASE_URL}/runs/{run_id}/jobs")
     for job in jobs_data.get("jobs", []):
         print(f"  - Job: {job.get('name')}, status={job.get('status')}, conclusion={job.get('conclusion')}")
-        for s in job.get("steps", []):
-            print(f"      [{s.get('status')}] {s.get('name')}")
+        for step in job.get("steps", []):
+            print(f"      [{step.get('status')}] {step.get('name')}")
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1].isdigit():

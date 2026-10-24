@@ -47,9 +47,13 @@ ensure_appset_ignore_differences() {
   fi
 }
 
+get_target_namespace() {
+  kubectl get application "${APP_NAME}" -n "${NAMESPACE}" -o jsonpath='{.spec.destination.namespace}' 2>/dev/null || echo "tiny-key-s-server-pr-${PR_NUM}"
+}
+
 init_helm_release_record() {
   local target_ns
-  target_ns=$(kubectl get application "${APP_NAME}" -n "${NAMESPACE}" -o jsonpath='{.spec.destination.namespace}' 2>/dev/null || echo "tiny-key-s-server-pr-${PR_NUM}")
+  target_ns=$(get_target_namespace)
   
   echo ">> Extracting existing deployment parameters from ArgoCD Application '${APP_NAME}'..."
   local helm_set_args
@@ -63,9 +67,9 @@ try:
     if raw:
         params = json.loads(raw)
         args = []
-        for p in params:
-            name = p.get("name")
-            val = p.get("value")
+        for param in params:
+            name = param.get("name")
+            val = param.get("value")
             if name and val is not None:
                 args.append(f"--set \"{name}={val}\"")
         print(" ".join(args))
@@ -108,7 +112,7 @@ case "$ACTION" in
     echo ">> Disabling automated sync for '${APP_NAME}'..."
     kubectl patch application "${APP_NAME}" -n "${NAMESPACE}" --type=merge -p '{"spec":{"syncPolicy":null}}'
     init_helm_release_record
-    target_ns=$(kubectl get application "${APP_NAME}" -n "${NAMESPACE}" -o jsonpath='{.spec.destination.namespace}' 2>/dev/null || echo "tiny-key-s-server-pr-${PR_NUM}")
+    target_ns=$(get_target_namespace)
     echo ""
     echo "=========================================================================================="
     echo " Auto-sync DISABLED for '${APP_NAME}'"
