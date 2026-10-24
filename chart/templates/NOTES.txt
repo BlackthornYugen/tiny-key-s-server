@@ -36,4 +36,33 @@ generated EC certificate chain via SSL-Passthrough:
   {{- end }}
 {{- end }}
 {{- end }}
+{{- if .Values.mitmproxy.enabled }}
+
+3. mitmproxy Sidecar Container:
+--------------------------------------------------------------------------------
+  Status:    ENABLED (Mode: {{ .Values.mitmproxy.mode | default "mitmweb" }})
+  CA Source: {{ if .Values.mitmproxy.customCa.enabled }}Custom CA (provided via values/secret){{ else }}s-server dynamic CA (chainMode: {{ .Values.mitmproxy.serverCa.chainMode | default "default" }}){{ end }}
+
+  Proxy Port (HTTP/HTTPS Interception):
+    Service Port: {{ .Values.mitmproxy.service.proxyPort | default 8080 }}
+    Port-Forward: kubectl port-forward -n {{ .Release.Namespace }} svc/{{ .Release.Name }} {{ .Values.mitmproxy.service.proxyPort | default 8080 }}:{{ .Values.mitmproxy.service.proxyPort | default 8080 }}
+    Test Command: curl -x http://localhost:{{ .Values.mitmproxy.service.proxyPort | default 8080 }} https://example.com
+
+{{- if eq (.Values.mitmproxy.mode | default "mitmweb") "mitmweb" }}
+  Web Inspection UI:
+{{- if and .Values.mitmproxy.ingress .Values.mitmproxy.ingress.enabled }}
+    {{- range .Values.mitmproxy.ingress.hosts }}
+    URL:          https://{{ . }}
+    {{- end }}
+{{- else }}
+    Port-Forward: kubectl port-forward -n {{ .Release.Namespace }} svc/{{ .Release.Name }} {{ .Values.mitmproxy.service.webPort | default 8081 }}:{{ .Values.mitmproxy.service.webPort | default 8081 }}
+    URL:          http://localhost:{{ .Values.mitmproxy.service.webPort | default 8081 }}
+{{- end }}
+{{- end }}
+{{- else }}
+
+3. mitmproxy Sidecar Container:
+--------------------------------------------------------------------------------
+  Status: DISABLED (enable via --reuse-values --set mitmproxy.enabled=true)
+{{- end }}
 ================================================================================
