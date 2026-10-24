@@ -11,5 +11,15 @@ spec:
     targetPort: {{ .Values.service.targetPort | default 4433 }}
     protocol: TCP
     name: https
+  {{- if .Values.mitmproxy.enabled }}
+  - port: {{ .Values.mitmproxy.service.proxyPort | default 8080 }}
+    targetPort: {{ .Values.mitmproxy.service.proxyPort | default 8080 }}
+    protocol: TCP
+    name: mitmproxy
+  - port: {{ .Values.mitmproxy.service.webPort | default 8081 }}
+    targetPort: {{ .Values.mitmproxy.service.webPort | default 8081 }}
+    protocol: TCP
+    name: mitmweb
+  {{- end }}
   selector:
     app: {{ .Release.Name }}

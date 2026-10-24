@@ -1,0 +1,29 @@
+{{- if and .Values.mitmproxy.enabled .Values.mitmproxy.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-mitmproxy
+  labels:
+    app: {{ .Release.Name }}
+  {{- with .Values.mitmproxy.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.mitmproxy.ingress.className }}
+  ingressClassName: {{ .Values.mitmproxy.ingress.className }}
+  {{- end }}
+  rules:
+  {{- range .Values.mitmproxy.ingress.hosts }}
+  - host: {{ . | quote }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ $.Release.Name }}
+            port:
+              number: {{ $.Values.mitmproxy.service.webPort | default 8081 }}
+  {{- end }}
+{{- end }}
