@@ -1003,6 +1003,20 @@ EOF
     step_num=$((step_num + 1))
 done
 
+format_chain_domain() {
+    local chain="$1"
+    local host="$2"
+    if [[ "$host" =~ ^(p(r)?-?[0-9]+-)(.*) ]]; then
+        local pr_pfx="${BASH_REMATCH[1]}"
+        local rest="${BASH_REMATCH[3]}"
+        echo "${pr_pfx}${chain}-${rest}"
+    else
+        echo "${chain}-${host}"
+    fi
+}
+
+PRIMARY_HOST=$(echo "$DOMAINS" | cut -d',' -f1)
+
 # Append Multi-Chain Endpoints Info to HTML
 cat >> "$HTML_OUTPUT_FILE" <<EOF
     <div class="section-title">Multi-Chain Endpoints & Ingress Routes</div>
@@ -1010,7 +1024,7 @@ cat >> "$HTML_OUTPUT_FILE" <<EOF
       <div class="step-header"><span>Dedicated Chain Endpoints</span></div>
       <div class="step-body">
         <pre><span class="cmd-line"># Primary Endpoint (Default Browser / Web UI)</span>
-Host: $(echo "$DOMAINS" | cut -d',' -f1):$PORT
+Host: ${PRIMARY_HOST}:${PORT}
 Chain Mode: $CHAIN_MODE
 EOF
 
@@ -1018,19 +1032,21 @@ if [ -d "$SERVE_DIR/chains" ]; then
     for cf in "$SERVE_DIR/chains"/c*.pem; do
         [ -f "$cf" ] || continue
         cb=$(basename "$cf" .pem)
+        ch_host=$(format_chain_domain "$cb" "$PRIMARY_HOST")
         cat >> "$HTML_OUTPUT_FILE" <<EOF
 
 <span class="cmd-line"># Endpoint: Chain '$cb' (Dedicated Pod & Ingress)</span>
-Domain: ${cb}-$(echo "$DOMAINS" | cut -d',' -f1)
-openssl s_client -connect ${cb}-$(echo "$DOMAINS" | cut -d',' -f1):8443 -showcerts
+Domain: ${ch_host}
+openssl s_client -connect ${ch_host}:8443 -showcerts
 EOF
     done
     if [ -f "$SERVE_DIR/chains/all.pem" ]; then
+        all_host=$(format_chain_domain "all" "$PRIMARY_HOST")
         cat >> "$HTML_OUTPUT_FILE" <<EOF
 
 <span class="cmd-line"># Endpoint: Combined Chain 'all' (Dedicated Pod & Ingress)</span>
-Domain: all-$(echo "$DOMAINS" | cut -d',' -f1)
-openssl s_client -connect all-$(echo "$DOMAINS" | cut -d',' -f1):8443 -showcerts
+Domain: ${all_host}
+openssl s_client -connect ${all_host}:8443 -showcerts
 EOF
     fi
 fi

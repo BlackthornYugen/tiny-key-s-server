@@ -55,14 +55,19 @@ spec:
         env:
         - name: PORT
           value: {{ $.Values.service.targetPort | default 4433 | quote }}
+        - name: CHAIN_MODE
+          value: {{ $chain | quote }}
+        {{- if and $.Values.ingress.enabled $.Values.ingress.hosts }}
+        {{- $chainHost := include "tiny-key-s-server.chainHost" (dict "chain" $chain "host" (first $.Values.ingress.hosts)) }}
+        - name: DOMAINS
+          value: {{ printf "%s,localhost" $chainHost | quote }}
+        {{- end }}
         {{- range $key, $val := $.Values.env }}
-        {{- if ne $key "CHAIN_MODE" }}
+        {{- if and (ne $key "CHAIN_MODE") (or (not $.Values.ingress.enabled) (ne $key "DOMAINS")) }}
         - name: {{ $key }}
           value: {{ $val | quote }}
         {{- end }}
         {{- end }}
-        - name: CHAIN_MODE
-          value: {{ $chain | quote }}
         {{- if $.Values.persistence.enabled }}
         volumeMounts:
         - name: certs
