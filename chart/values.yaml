@@ -81,6 +81,9 @@ mitmproxy:
   # Optional password for the mitmweb UI (also accessible via http://<host>:8081/?token=<password>).
   # If left empty, mitmproxy generates a random token on startup printed in container logs.
   webPassword: ""
+  # Optional proxy authentication in "username:password" format for clients connecting to port 8080.
+  # Essential when exposing the proxy publicly (e.g. via NodePort) to prevent open proxy relay abuse.
+  proxyAuth: ""
   # Extra CLI arguments passed to mitmproxy / mitmweb
   extraArgs: []
   resources:
@@ -93,6 +96,8 @@ mitmproxy:
   service:
     proxyPort: 8080
     webPort: 8081
+    # Optional public NodePort on cluster nodes for port 8080 (e.g. 30800)
+    proxyNodePort: null
   ingress:
     enabled: false
     className: "haproxy"

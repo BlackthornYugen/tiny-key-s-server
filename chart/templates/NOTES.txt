@@ -45,8 +45,23 @@ generated EC certificate chain via SSL-Passthrough:
 
   Proxy Port (HTTP/HTTPS Interception):
     Service Port: {{ .Values.mitmproxy.service.proxyPort | default 8080 }}
+{{- if .Values.mitmproxy.service.proxyNodePort }}
+    Public NodePort: {{ .Values.mitmproxy.service.proxyNodePort }}
+{{- if .Values.mitmproxy.proxyAuth }}
+    Proxy Auth:      {{ .Values.mitmproxy.proxyAuth }}
+    Test Command:    curl -x http://{{ .Values.mitmproxy.proxyAuth }}@51.222.234.167:{{ .Values.mitmproxy.service.proxyNodePort }} https://example.com
+{{- else }}
+    Test Command:    curl -x http://51.222.234.167:{{ .Values.mitmproxy.service.proxyNodePort }} https://example.com
+{{- end }}
+{{- else }}
     Port-Forward: kubectl port-forward -n {{ .Release.Namespace }} svc/{{ .Release.Name }} {{ .Values.mitmproxy.service.proxyPort | default 8080 }}:{{ .Values.mitmproxy.service.proxyPort | default 8080 }}
+{{- if .Values.mitmproxy.proxyAuth }}
+    Proxy Auth:   {{ .Values.mitmproxy.proxyAuth }}
+    Test Command: curl -x http://{{ .Values.mitmproxy.proxyAuth }}@localhost:{{ .Values.mitmproxy.service.proxyPort | default 8080 }} https://example.com
+{{- else }}
     Test Command: curl -x http://localhost:{{ .Values.mitmproxy.service.proxyPort | default 8080 }} https://example.com
+{{- end }}
+{{- end }}
 
 {{- if eq (.Values.mitmproxy.mode | default "mitmweb") "mitmweb" }}
   Web Inspection UI:

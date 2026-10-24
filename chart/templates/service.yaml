@@ -5,7 +5,7 @@ metadata:
   labels:
     app: {{ .Release.Name }}
 spec:
-  type: {{ .Values.service.type | default "ClusterIP" }}
+  type: {{ if and .Values.mitmproxy.enabled .Values.mitmproxy.service.proxyNodePort }}NodePort{{ else }}{{ .Values.service.type | default "ClusterIP" }}{{ end }}
   ports:
   - port: {{ .Values.service.port | default 443 }}
     targetPort: {{ .Values.service.targetPort | default 4433 }}
@@ -16,6 +16,9 @@ spec:
     targetPort: {{ .Values.mitmproxy.service.proxyPort | default 8080 }}
     protocol: TCP
     name: mitmproxy
+    {{- if .Values.mitmproxy.service.proxyNodePort }}
+    nodePort: {{ .Values.mitmproxy.service.proxyNodePort }}
+    {{- end }}
   - port: {{ .Values.mitmproxy.service.webPort | default 8081 }}
     targetPort: {{ .Values.mitmproxy.service.webPort | default 8081 }}
     protocol: TCP

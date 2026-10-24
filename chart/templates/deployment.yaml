@@ -110,6 +110,9 @@ spec:
               {{- if .Values.mitmproxy.webPassword }}
               --set web_password={{ .Values.mitmproxy.webPassword | quote }} \
               {{- end }}
+              {{- if .Values.mitmproxy.proxyAuth }}
+              --set proxyauth={{ .Values.mitmproxy.proxyAuth | quote }} \
+              {{- end }}
               {{- range .Values.mitmproxy.extraArgs }}
               {{ . | quote }} \
               {{- end }}
