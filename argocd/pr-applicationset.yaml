@@ -30,6 +30,8 @@ spec:
               value: '{{head_sha}}'
             - name: ingress.enabled
               value: "true"
+            - name: ingress.publicPort
+              value: "8443"
             - name: image.repository
               value: git.tower.jskw.dev/webapps/tiny-key-s-server
             - name: ingress.hosts[0]

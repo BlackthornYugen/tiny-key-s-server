@@ -13,6 +13,12 @@ cd "$SERVE_DIR"
 # Configuration & Defaults
 # ------------------------------------------------------------------------------
 PORT="${PORT:-${S_SERVER_PORT:-4433}}"
+PUBLIC_PORT="${PUBLIC_PORT:-443}"
+if [ "$PUBLIC_PORT" = "443" ]; then
+    PUBLIC_PORT_SUFFIX=""
+else
+    PUBLIC_PORT_SUFFIX=":${PUBLIC_PORT}"
+fi
 WWW_MODE="${WWW_MODE:-${SERVER_MODE:-WWW}}" # WWW, www, or HTTP
 
 # Curves
@@ -1003,6 +1009,20 @@ EOF
     step_num=$((step_num + 1))
 done
 
+format_chain_domain() {
+    local chain="$1"
+    local host="$2"
+    if [[ "$host" =~ ^(p(r)?-?[0-9]+-)(.*) ]]; then
+        local pr_pfx="${BASH_REMATCH[1]}"
+        local rest="${BASH_REMATCH[3]}"
+        echo "${pr_pfx}${chain}-${rest}"
+    else
+        echo "${chain}-${host}"
+    fi
+}
+
+PRIMARY_HOST=$(echo "$DOMAINS" | cut -d',' -f1)
+
 # Append Multi-Chain Endpoints Info to HTML
 cat >> "$HTML_OUTPUT_FILE" <<EOF
     <div class="section-title">Multi-Chain Endpoints & Ingress Routes</div>
@@ -1010,7 +1030,7 @@ cat >> "$HTML_OUTPUT_FILE" <<EOF
       <div class="step-header"><span>Dedicated Chain Endpoints</span></div>
       <div class="step-body">
         <pre><span class="cmd-line"># Primary Endpoint (Default Browser / Web UI)</span>
-Host: $(echo "$DOMAINS" | cut -d',' -f1):$PORT
+Host: ${PRIMARY_HOST}${PUBLIC_PORT_SUFFIX}
 Chain Mode: $CHAIN_MODE
 EOF
 
@@ -1018,19 +1038,21 @@ if [ -d "$SERVE_DIR/chains" ]; then
     for cf in "$SERVE_DIR/chains"/c*.pem; do
         [ -f "$cf" ] || continue
         cb=$(basename "$cf" .pem)
+        ch_host=$(format_chain_domain "$cb" "$PRIMARY_HOST")
         cat >> "$HTML_OUTPUT_FILE" <<EOF
 
 <span class="cmd-line"># Endpoint: Chain '$cb' (Dedicated Pod & Ingress)</span>
-Domain: ${cb}-$(echo "$DOMAINS" | cut -d',' -f1)
-openssl s_client -connect ${cb}-$(echo "$DOMAINS" | cut -d',' -f1):8443 -showcerts
+Domain: ${ch_host}
+openssl s_client -connect ${ch_host}:${PUBLIC_PORT} -showcerts
 EOF
     done
     if [ -f "$SERVE_DIR/chains/all.pem" ]; then
+        all_host=$(format_chain_domain "all" "$PRIMARY_HOST")
         cat >> "$HTML_OUTPUT_FILE" <<EOF
 
 <span class="cmd-line"># Endpoint: Combined Chain 'all' (Dedicated Pod & Ingress)</span>
-Domain: all-$(echo "$DOMAINS" | cut -d',' -f1)
-openssl s_client -connect all-$(echo "$DOMAINS" | cut -d',' -f1):8443 -showcerts
+Domain: ${all_host}
+openssl s_client -connect ${all_host}:${PUBLIC_PORT} -showcerts
 EOF
     fi
 fi
@@ -1046,13 +1068,13 @@ cat >> "$HTML_OUTPUT_FILE" <<EOF
     <div class="step-box">
       <div class="step-header"><span>TLS Client Commands</span></div>
       <div class="step-body">
-        <pre><span class="cmd-line"># Connect and verify with OpenSSL s_client</span>
+        <pre><span class="cmd-line"># Public Ingress Endpoint</span>
+curl -k https://${PRIMARY_HOST}${PUBLIC_PORT_SUFFIX}/index.html
+openssl s_client -connect ${PRIMARY_HOST}:${PUBLIC_PORT} -servername ${PRIMARY_HOST} -showcerts
+
+<span class="cmd-line"># Local / In-Cluster Verification</span>
 openssl s_client -connect localhost:$PORT -showcerts -CAfile ca.crt.pem
-
-# Fetch page using curl trusting generated CA
 curl --cacert ca.crt.pem https://localhost:$PORT/index.html
-
-# Fetch page with insecure flag
 curl -k https://localhost:$PORT/index.html</pre>
       </div>
     </div>

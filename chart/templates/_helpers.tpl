@@ -69,3 +69,14 @@ e.g. tiny-key-s-server.jskw.dev -> mitm-tiny-key-s-server.jskw.dev
     {{- printf "mitm-%s" $host -}}
   {{- end -}}
 {{- end -}}
+
+{{/*
+Return public port for external access (defaults to 443).
+*/}}
+{{- define "tiny-key-s-server.publicPort" -}}
+  {{- if .Values.ingress -}}
+    {{- .Values.ingress.publicPort | default .Values.publicPort | default 443 -}}
+  {{- else -}}
+    {{- .Values.publicPort | default 443 -}}
+  {{- end -}}
+{{- end -}}
