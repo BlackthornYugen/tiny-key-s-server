@@ -6,7 +6,35 @@ This directory contains utility scripts for managing builds, monitoring CI/CD, i
 
 ## Available Scripts
 
-### 1. `push_branch.sh`
+### 1. `giteactl.py` (Unified Gitea PR & CI Control)
+Unified Python CLI utility using `typer`, `python-dotenv`, and `requests` with inline PEP 723 dependency metadata for `uv`. Consolidates creating PRs, checking/posting comments and code reviews, and monitoring CI runs into a single CLI tool.
+
+**Usage:**
+```bash
+# View CLI help and available commands
+uv run ./scripts/giteactl.py --help
+
+# 1. Post a comment to a PR
+uv run ./scripts/giteactl.py comment 3 --body "Looks great!"
+uv run ./scripts/giteactl.py comment 3 --file comment.md
+cat comment.md | uv run ./scripts/giteactl.py comment 3
+
+# 2. Inspect comments and reviews on a PR
+uv run ./scripts/giteactl.py comments 3
+uv run ./scripts/giteactl.py comments --all
+
+# 3. Monitor Gitea Actions CI workflow runs
+uv run ./scripts/giteactl.py ci
+uv run ./scripts/giteactl.py ci 153
+
+# 4. Create a Pull Request
+uv run ./scripts/giteactl.py create-pr --title "feat: my change" --body "PR details..."
+```
+*(Note: Because `./scripts/giteactl.py` has a `#!/usr/bin/env -S uv run` shebang, you can also execute it directly as `./scripts/giteactl.py <command>`.)*
+
+---
+
+### 2. `push_branch.sh`
 Pushes the active branch (or a specified branch) to Gitea (`origin`) using credentials in `.env`. By default, it pushes only to Gitea. Pass `--github` or `--all` if you also need to mirror to GitHub (`gh`).
 
 **Usage:**
@@ -23,7 +51,7 @@ Pushes the active branch (or a specified branch) to Gitea (`origin`) using crede
 
 ---
 
-### 2. `sync_mirror.sh`
+### 3. `sync_mirror.sh`
 Fetches the latest `main` (or specified branch) from Gitea (`origin`) and pushes it directly to GitHub (`gh`), ensuring the GitHub mirror and any shadow PRs update immediately.
 
 **Usage:**
@@ -37,58 +65,7 @@ Fetches the latest `main` (or specified branch) from Gitea (`origin`) and pushes
 
 ---
 
-### 2. `create_pr.py`
-Creates a Pull Request on Gitea via the API for the current (or specified) branch, reading credentials from `.env`.
-
-**Usage:**
-```bash
-# Create PR for current branch into main using latest commit message
-./scripts/create_pr.py
-
-# Create PR with custom title and description
-./scripts/create_pr.py -t "feat(chart): add mitmproxy sidecar" -b "PR description..."
-
-# Create PR specifying head and base branch
-./scripts/create_pr.py --head feat/my-branch --base main -t "My PR"
-```
-
----
-
-### 3. `comment_pr.py`
-Posts a markdown comment to a Gitea Pull Request (or issue) by PR number, reading credentials from `.env`.
-
-**Usage:**
-```bash
-# Post comment using inline text
-./scripts/comment_pr.py 1 -b "PR Review Notes..."
-
-# Post comment from a markdown file
-./scripts/comment_pr.py 1 -f review_comment.md
-
-# Pipe comment from another command or stdin
-cat review_comment.md | ./scripts/comment_pr.py 1
-```
-
----
-
-### 4. `check_comments.py`
-Inspects and displays comments posted on Gitea pull requests or issues.
-
-**Usage:**
-```bash
-# View comments on the latest open PR
-./scripts/check_comments.py
-
-# View comments on a specific PR
-./scripts/check_comments.py 3
-
-# View comments across recent PRs
-./scripts/check_comments.py --all
-```
-
----
-
-### 5. `toggle_pr_sync.sh`
+### 4. `toggle_pr_sync.sh`
 Enables, disables, or checks ArgoCD automated synchronization for a PR preview application. Automatically configures the `ApplicationSet` to ignore `syncPolicy` changes so manual Helm upgrades aren't reverted.
 
 **Usage:**
@@ -101,23 +78,6 @@ Enables, disables, or checks ArgoCD automated synchronization for a PR preview a
 
 # Re-enable auto-sync
 ./scripts/toggle_pr_sync.sh 2 enable
-```
-
----
-
-### 4. `check_ci.py`
-Queries the Gitea Actions API to display recent workflow runs and their build status without printing tokens or running large inline commands.
-
-**Usage:**
-```bash
-# List 5 most recent runs
-./scripts/check_ci.py
-
-# List 10 most recent runs
-./scripts/check_ci.py -n 10
-
-# Inspect specific run details and job step logs
-./scripts/check_ci.py 136
 ```
 
 ---
@@ -164,7 +124,7 @@ Removes orphaned legacy main resources (`Deployment`, `Service`, `Ingress`) from
 
 ## Requirements
 
-- **`.env`**: Required by `push_branch.sh`, `create_pr.py`, and `check_ci.py` for `GITEA_USER` and `GITEA_TOKEN`.
-- **`kubectl`**: Required by `check_cluster.sh`.
+- **`.env`**: Required by `push_branch.sh` and `giteactl.py` for `GITEA_USER` and `GITEA_TOKEN`.
+- **`uv`**: Required to run `giteactl.py` (`uv run ./scripts/giteactl.py` or `./scripts/giteactl.py`).
+- **`kubectl`**: Required by `check_cluster.sh` and `toggle_pr_sync.sh`.
 - **`curl` & `openssl`**: Required by `test_endpoints.sh`.
-- **`python3`**: Standard Python 3 standard library (no third-party dependencies required).
