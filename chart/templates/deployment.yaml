@@ -107,9 +107,15 @@ spec:
             exec {{ .Values.mitmproxy.mode | default "mitmweb" }} \
               --web-host 0.0.0.0 \
               --set block_global=false \
+              {{- if .Values.mitmproxy.webPassword }}
+              --set web_password={{ .Values.mitmproxy.webPassword | quote }} \
+              {{- end }}
               {{- range .Values.mitmproxy.extraArgs }}
               {{ . | quote }} \
               {{- end }}
+        env:
+          - name: PYTHONUNBUFFERED
+            value: "1"
         ports:
           - name: mitmproxy
             containerPort: {{ .Values.mitmproxy.service.proxyPort | default 8080 }}

@@ -52,11 +52,17 @@ generated EC certificate chain via SSL-Passthrough:
   Web Inspection UI:
 {{- if and .Values.mitmproxy.ingress .Values.mitmproxy.ingress.enabled }}
     {{- range .Values.mitmproxy.ingress.hosts }}
-    URL:          https://{{ . }}
+    URL:          https://{{ . }}{{ if $.Values.mitmproxy.webPassword }}/?token={{ $.Values.mitmproxy.webPassword }}{{ end }}
     {{- end }}
 {{- else }}
     Port-Forward: kubectl port-forward -n {{ .Release.Namespace }} svc/{{ .Release.Name }} {{ .Values.mitmproxy.service.webPort | default 8081 }}:{{ .Values.mitmproxy.service.webPort | default 8081 }}
-    URL:          http://localhost:{{ .Values.mitmproxy.service.webPort | default 8081 }}
+    URL:          http://localhost:{{ .Values.mitmproxy.service.webPort | default 8081 }}{{ if .Values.mitmproxy.webPassword }}/?token={{ .Values.mitmproxy.webPassword }}{{ end }}
+{{- end }}
+{{- if .Values.mitmproxy.webPassword }}
+    Password:     {{ .Values.mitmproxy.webPassword }} (or open URL with ?token={{ .Values.mitmproxy.webPassword }})
+{{- else }}
+    Password:     Auto-generated security token. Run this command to view it:
+                  kubectl logs -n {{ .Release.Namespace }} -l app={{ .Release.Name }} -c mitmproxy | grep -E "Web server listening|token"
 {{- end }}
 {{- end }}
 {{- else }}

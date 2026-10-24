@@ -257,6 +257,8 @@ When `customCa.enabled: false`, the sidecar shares an in-memory volume with `s-s
 mitmproxy:
   enabled: true
   mode: mitmweb # "mitmweb" (web UI) or "mitmdump" (headless proxy)
+  # Optional fixed password for mitmweb (leave empty for auto-generated token in logs)
+  webPassword: "mitm"
   service:
     proxyPort: 8080
     webPort: 8081

@@ -78,6 +78,9 @@ mitmproxy:
     pullPolicy: IfNotPresent
   # Execution mode: "mitmweb" (interactive web UI) or "mitmdump" (lightweight headless proxy)
   mode: mitmweb
+  # Optional password for the mitmweb UI (also accessible via http://<host>:8081/?token=<password>).
+  # If left empty, mitmproxy generates a random token on startup printed in container logs.
+  webPassword: ""
   # Extra CLI arguments passed to mitmproxy / mitmweb
   extraArgs: []
   resources:
