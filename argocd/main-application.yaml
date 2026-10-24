@@ -27,8 +27,10 @@ spec:
             - tiny-key-s-server.jsteel.dev
   destination:
     server: https://kubernetes.default.svc
-    namespace: gitea
+    namespace: tiny-key-s-server
   syncPolicy:
     automated:
-      prune: false
-      selfHeal: false
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

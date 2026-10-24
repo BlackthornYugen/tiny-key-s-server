@@ -4,6 +4,9 @@ metadata:
   name: tiny-key-s-server-prs
   namespace: argocd
 spec:
+  ignoreApplicationDifferences:
+    - jsonPointers:
+        - /spec/syncPolicy
   generators:
     - pullRequest:
         gitea:
@@ -33,7 +36,7 @@ spec:
               value: 'pr-{{number}}-tiny-key-s-server.jskw.dev'
       destination:
         server: https://kubernetes.default.svc
-        namespace: gitea
+        namespace: 'tiny-key-s-server-pr-{{number}}'
       syncPolicy:
         automated:
           prune: true

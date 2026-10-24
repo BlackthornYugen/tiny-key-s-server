@@ -1,0 +1,46 @@
+{{- if and .Values.mitmproxy.enabled .Values.mitmproxy.ingress.enabled -}}
+{{- $hasCustomHosts := and .Values.mitmproxy.ingress.hosts (ne (index .Values.mitmproxy.ingress.hosts 0) "") -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-mitmproxy
+  labels:
+    app: {{ .Release.Name }}
+  {{- with .Values.mitmproxy.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.mitmproxy.ingress.className }}
+  ingressClassName: {{ .Values.mitmproxy.ingress.className }}
+  {{- end }}
+  rules:
+  {{- if $hasCustomHosts }}
+  {{- range .Values.mitmproxy.ingress.hosts }}
+  - host: {{ . | quote }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ $.Release.Name }}
+            port:
+              number: {{ $.Values.mitmproxy.service.webPort | default 8081 }}
+  {{- end }}
+  {{- else }}
+  {{- range .Values.ingress.hosts }}
+  {{- $mHost := include "tiny-key-s-server.mitmHost" (dict "host" .) }}
+  - host: {{ $mHost | quote }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ $.Release.Name }}
+            port:
+              number: {{ $.Values.mitmproxy.service.webPort | default 8081 }}
+  {{- end }}
+  {{- end }}
+{{- end }}

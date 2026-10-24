@@ -41,6 +41,10 @@ CHAINS_DIR="${CHAINS_DIR:-$CERTS_DIR/chains}"
 ROOTS_DIR="${ROOTS_DIR:-$CERTS_DIR/roots}"
 EXTRA_CHAIN_PEM="${EXTRA_CHAIN_PEM:-}"
 CHAIN_FILE="${CHAIN_FILE:-}"
+ROOTS="${ROOTS:-${CHAINS:-}}"
+ROOT_S_BYTES="${ROOT_S_BYTES:-}"
+ROOTS_INPUT="$ROOTS"
+ROOT_S_BYTES_INPUT="$ROOT_S_BYTES"
 
 # Extra s_server arguments
 EXTRA_S_SERVER_ARGS="${EXTRA_S_SERVER_ARGS:-}"
@@ -95,6 +99,20 @@ derive_partner_scalar() {
     printf "%s%02x" "$prefix" "$next_int"
 }
 
+unpad_hex() {
+    local hex="$1"
+    hex="${hex#0x}"
+    hex="${hex#0X}"
+    local unpadded
+    unpadded=$(echo "$hex" | sed 's/^0*//')
+    if [ -z "$unpadded" ]; then
+        unpadded="00"
+    elif [ $(( ${#unpadded} % 2 )) -ne 0 ]; then
+        unpadded="0$unpadded"
+    fi
+    echo "0x$unpadded"
+}
+
 # ------------------------------------------------------------------------------
 # Logging & Command Tracking
 # ------------------------------------------------------------------------------
@@ -142,6 +160,8 @@ echo "==================================================================="
 # Default metadata
 SEED_TYPE="Random (OS entropy)"
 SEED_DISPLAY="Auto-generated random"
+SERVER_SCALAR_DISPLAY="Random"
+CA_SCALAR_DISPLAY="Random"
 
 # ------------------------------------------------------------------------------
 # Check for Mounted Volume Certificates
@@ -169,6 +189,8 @@ if [ -n "$MOUNTED_CHAIN" ] && [ -n "$MOUNTED_KEY" ]; then
     USED_MOUNTED=true
     SEED_TYPE="Mounted Volume"
     SEED_DISPLAY="External volume ($MOUNTED_CHAIN)"
+    SERVER_SCALAR_DISPLAY="External"
+    CA_SCALAR_DISPLAY="External"
     echo ">> Found mounted certificate chain and key:"
     echo "   Chain: $MOUNTED_CHAIN"
     echo "   Key:   $MOUNTED_KEY"
@@ -192,11 +214,13 @@ else
             CA_SCALAR=$(derive_partner_scalar "$SERVER_SCALAR")
         fi
         
+        SERVER_SCALAR_DISPLAY=$(unpad_hex "$SERVER_SCALAR")
+        CA_SCALAR_DISPLAY=$(unpad_hex "$CA_SCALAR")
         SEED_TYPE="Exact Scalar 's' Bytes"
-        SEED_DISPLAY="Server: 0x$SERVER_SCALAR<br>CA:     0x$CA_SCALAR"
+        SEED_DISPLAY="Server: $SERVER_SCALAR_DISPLAY<br>CA:     $CA_SCALAR_DISPLAY"
         echo ">> Configured EC scalar 's' bytes:"
-        echo "   Server Key scalar: 0x$SERVER_SCALAR"
-        echo "   CA Key scalar:     0x$CA_SCALAR"
+        echo "   Server Key scalar: 0x$SERVER_SCALAR ($SERVER_SCALAR_DISPLAY)"
+        echo "   CA Key scalar:     0x$CA_SCALAR ($CA_SCALAR_DISPLAY)"
         
         # 1. Generate CA Private Key from scalar ASN.1
         CA_ASN1_CNF="$SERVE_DIR/asn1_ca.cnf"
@@ -295,7 +319,99 @@ EOF
     # --------------------------------------------------------------------------
     # Cross-Signing & Certificate Chain Assembly
     # --------------------------------------------------------------------------
-    mkdir -p "$SERVE_DIR/chains"
+    mkdir -p "$SERVE_DIR/chains" "$SERVE_DIR/roots"
+
+    # 0. Check for ROOTS or ROOT_S_BYTES env vars and auto-generate Root CAs if provided
+    ROOTS_INPUT="${ROOTS:-${CHAINS:-}}"
+    ROOT_S_BYTES_INPUT="${ROOT_S_BYTES:-}"
+
+    if [ -n "$ROOTS_INPUT" ] || [ -n "$ROOT_S_BYTES_INPUT" ]; then
+        declare -a ROOT_NAMES=()
+        declare -a ROOT_SCALARS=()
+
+        if [ -n "$ROOTS_INPUT" ]; then
+            IFS=',' read -ra R_NAME_ARR <<< "$ROOTS_INPUT"
+            for rn in "${R_NAME_ARR[@]}"; do
+                r_trimmed=$(echo "$rn" | tr -d ' ')
+                [ -n "$r_trimmed" ] && ROOT_NAMES+=("$r_trimmed")
+            done
+        fi
+
+        if [ -n "$ROOT_S_BYTES_INPUT" ]; then
+            IFS=',' read -ra R_SCALAR_ARR <<< "$ROOT_S_BYTES_INPUT"
+            for rs in "${R_SCALAR_ARR[@]}"; do
+                rs_trimmed=$(echo "$rs" | tr -d ' ')
+                [ -n "$rs_trimmed" ] && ROOT_SCALARS+=("$rs_trimmed")
+            done
+        fi
+
+        # If names were given but not scalars, generate deterministic scalars
+        if [ ${#ROOT_NAMES[@]} -gt 0 ] && [ ${#ROOT_SCALARS[@]} -eq 0 ]; then
+            idx=1
+            for rn in "${ROOT_NAMES[@]}"; do
+                hex_val=$(printf "%02x" $((16 * idx)))
+                ROOT_SCALARS+=("$hex_val")
+                idx=$((idx + 1))
+            done
+        fi
+
+        # If scalars were given but not names, generate names c1, c2, ...
+        if [ ${#ROOT_SCALARS[@]} -gt 0 ] && [ ${#ROOT_NAMES[@]} -eq 0 ]; then
+            idx=1
+            for rs in "${ROOT_SCALARS[@]}"; do
+                ROOT_NAMES+=("c$idx")
+                idx=$((idx + 1))
+            done
+        fi
+
+        # Generate each Root CA and sign Intermediate B
+        for i in "${!ROOT_NAMES[@]}"; do
+            r_name="${ROOT_NAMES[$i]}"
+            r_scalar="${ROOT_SCALARS[$i]}"
+            r_scalar_formatted=$(format_scalar "$r_scalar" "$(get_curve_bytes "$CA_CURVE")")
+
+            r_key="$SERVE_DIR/roots/${r_name}.key.pem"
+            r_crt="$SERVE_DIR/roots/${r_name}.crt.pem"
+
+            # ASN.1 key configuration
+            r_asn="$SERVE_DIR/roots/asn_${r_name}.cnf"
+            cat > "$r_asn" <<EOF
+asn1 = SEQUENCE:ec_key
+[ec_key]
+version = INTEGER:1
+privkey = FORMAT:HEX,OCTETSTRING:$r_scalar_formatted
+params = EXPLICIT:0,OBJECT:$CA_CURVE
+EOF
+            run_recorded "Encode Root CA '$r_name' DER from scalar $r_scalar" \
+                "openssl asn1parse -genconf '$r_asn' -out '$SERVE_DIR/roots/${r_name}.der'"
+            run_recorded "Package Root CA '$r_name' EC Private Key to PEM" \
+                "echo '-----BEGIN EC PRIVATE KEY-----' > '$r_key' && openssl base64 -in '$SERVE_DIR/roots/${r_name}.der' >> '$r_key' && echo '-----END EC PRIVATE KEY-----' >> '$r_key'"
+            rm -f "$SERVE_DIR/roots/${r_name}.der" "$r_asn"
+
+            # Generate Self-Signed Root Certificate
+            run_recorded "Generate Self-Signed Root Certificate for '$r_name'" \
+                "openssl req -new -x509 -key '$r_key' -out '$r_crt' -days '$CA_DAYS' -subj '/CN=Root CA ${r_name}/O=Test Lab/C=CA' -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign' -addext 'subjectKeyIdentifier=hash'"
+
+            # Intermediate extension file
+            inter_cnf="$SERVE_DIR/chains/inter_ext_${r_name}.cnf"
+            cat > "$inter_cnf" <<EOF
+basicConstraints = critical,CA:TRUE,pathlen:0
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
+EOF
+            run_recorded "Sign Intermediate B with Root CA '$r_name'" \
+                "openssl x509 -req -in '$SERVE_DIR/ca.csr.pem' -CA '$r_crt' -CAkey '$r_key' -CAcreateserial -out '$SERVE_DIR/chains/${r_name}.pem' -days '$CA_DAYS' -extfile '$inter_cnf'"
+
+            # Append root certificate so the chain is complete
+            cat "$r_crt" >> "$SERVE_DIR/chains/${r_name}.pem"
+        done
+
+        # If there are 2 or more roots, build all.pem
+        if [ ${#ROOT_NAMES[@]} -gt 1 ]; then
+            cat "$SERVE_DIR"/chains/c*.pem > "$SERVE_DIR/chains/all.pem"
+        fi
+    fi
 
     # 1. Check for external/mounted root CAs in $ROOTS_DIR and auto-sign CA key b
     if [ -d "$ROOTS_DIR" ]; then
@@ -491,33 +607,149 @@ cat > "$HTML_OUTPUT_FILE" <<'HTML_HEADER'
       margin-top: 0.5rem;
       font-size: 1.1rem;
     }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    .runtime-bar {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 0.85rem 1.25rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
       gap: 1rem;
+      margin-bottom: 1.25rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85rem;
+    }
+    .runtime-items {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 1.5rem;
+    }
+    .runtime-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .runtime-label {
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-size: 0.72rem;
+      letter-spacing: 0.05em;
+    }
+    .runtime-val {
+      color: #fff;
+      font-weight: 600;
+    }
+    .runtime-badge {
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      padding: 0.15rem 0.5rem;
+      border-radius: 0.375rem;
+      font-weight: 600;
+    }
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.25rem;
       margin-bottom: 2rem;
     }
-    .card {
+    .entity-card {
       background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: 0.75rem;
       padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
     }
-    .card-full {
-      grid-column: 1 / -1;
+    .entity-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.75rem;
     }
-    .card-title {
-      font-size: 0.8rem;
-      text-transform: uppercase;
+    .entity-title-group {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .entity-badge-leaf {
+      background: rgba(52, 211, 153, 0.2);
+      color: #34d399;
+      border: 1px solid rgba(52, 211, 153, 0.3);
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.2rem 0.5rem;
+      border-radius: 0.375rem;
       letter-spacing: 0.05em;
+    }
+    .entity-badge-ca {
+      background: rgba(129, 140, 248, 0.2);
+      color: #818cf8;
+      border: 1px solid rgba(129, 140, 248, 0.3);
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.2rem 0.5rem;
+      border-radius: 0.375rem;
+      letter-spacing: 0.05em;
+    }
+    .entity-name {
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: #fff;
+    }
+    .entity-curve {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.75rem;
       color: var(--text-muted);
+    }
+    .entity-curve strong {
+      color: #fff;
+    }
+    .entity-meta-row {
+      display: grid;
+      grid-template-columns: 1fr 2fr;
+      gap: 0.75rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.8rem;
+    }
+    .meta-box {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(51, 65, 85, 0.6);
+      border-radius: 0.5rem;
+      padding: 0.65rem;
+    }
+    .meta-label {
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-size: 0.65rem;
+      letter-spacing: 0.05em;
       margin-bottom: 0.25rem;
     }
-    .card-value {
-      font-size: 1.15rem;
-      font-weight: 600;
-      color: #fff;
+    .meta-val {
       word-break: break-all;
+    }
+    .meta-val-leaf {
+      color: #34d399;
+      font-weight: 700;
+      font-size: 1.05rem;
+    }
+    .meta-val-ca {
+      color: #818cf8;
+      font-weight: 700;
+      font-size: 1.05rem;
+    }
+    .subject-box {
+      background: rgba(15, 23, 42, 0.4);
+      border: 1px solid rgba(51, 65, 85, 0.4);
+      border-radius: 0.5rem;
+      padding: 0.65rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.8rem;
     }
     .section-title {
       font-size: 1.5rem;
@@ -606,46 +838,82 @@ cat > "$HTML_OUTPUT_FILE" <<'HTML_HEADER'
       <p class="lead">Testing standard EC curves with small integers as private key scalars.</p>
     </header>
 
-    <div class="grid">
-      <div class="card">
-        <div class="card-title">WWW_MODE</div>
-        <div class="card-value">-__WWW_MODE__</div>
+    <!-- Runtime Summary Bar -->
+    <div class="runtime-bar">
+      <div class="runtime-items">
+        <div class="runtime-item">
+          <span class="runtime-label">Port:</span>
+          <span class="runtime-val">__PORT__ (TCP)</span>
+        </div>
+        <div class="runtime-item">
+          <span class="runtime-label">Mode:</span>
+          <span class="runtime-val">-__WWW_MODE__</span>
+        </div>
+        <div class="runtime-item">
+          <span class="runtime-label">Active Chain:</span>
+          <span class="runtime-badge">__CHAIN_MODE__</span>
+        </div>
       </div>
-      <div class="card">
-        <div class="card-title">PORT</div>
-        <div class="card-value">__PORT__</div>
+      <div class="runtime-item">
+        <span class="runtime-label">Cross-Signed Roots:</span>
+        <span class="runtime-val">__ROOTS_SUMMARY__</span>
       </div>
-      <div class="card">
-        <div class="card-title">SERVER_CURVE</div>
-        <div class="card-value">__SERVER_CURVE__</div>
+    </div>
+
+    <!-- 2 Column Entity Layout (Leaf vs CA) -->
+    <div class="two-col">
+      <!-- Leaf Server Entity -->
+      <div class="entity-card">
+        <div class="entity-header">
+          <div class="entity-title-group">
+            <span class="entity-badge-leaf">LEAF</span>
+            <span class="entity-name">Server Key &amp; Certificate</span>
+          </div>
+          <div class="entity-curve">Curve: <strong>__SERVER_CURVE__</strong></div>
+        </div>
+
+        <div class="entity-meta-row">
+          <div class="meta-box">
+            <div class="meta-label">Scalar 's'</div>
+            <div class="meta-val meta-val-leaf">__SERVER_SCALAR_DISPLAY__</div>
+          </div>
+          <div class="meta-box">
+            <div class="meta-label">SAN Domains &amp; IPs</div>
+            <div class="meta-val" style="color: #e2e8f0;">__DOMAINS__, __IPS__</div>
+          </div>
+        </div>
+
+        <div class="subject-box">
+          <div class="meta-label">Subject DN</div>
+          <div class="meta-val" style="color: #cbd5e1;">__SERVER_SUBJECT__</div>
+        </div>
       </div>
-      <div class="card">
-        <div class="card-title">CA_CURVE</div>
-        <div class="card-value">__CA_CURVE__</div>
-      </div>
-      <div class="card">
-        <div class="card-title">SERVER_SUBJECT</div>
-        <div class="card-value">__SERVER_SUBJECT__</div>
-      </div>
-      <div class="card">
-        <div class="card-title">CA_SUBJECT</div>
-        <div class="card-value">__CA_SUBJECT__</div>
-      </div>
-      <div class="card">
-        <div class="card-title">DOMAINS</div>
-        <div class="card-value">__DOMAINS__</div>
-      </div>
-      <div class="card">
-        <div class="card-title">IPS</div>
-        <div class="card-value">__IPS__</div>
-      </div>
-      <div class="card">
-        <div class="card-title">CHAIN_MODE</div>
-        <div class="card-value">__CHAIN_MODE__</div>
-      </div>
-      <div class="card card-full">
-        <div class="card-title">S_BYTES</div>
-        <div class="card-value" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.95rem; line-height: 1.8; white-space: pre-wrap;">__SEED_DISPLAY__</div>
+
+      <!-- CA Issuer Entity -->
+      <div class="entity-card">
+        <div class="entity-header">
+          <div class="entity-title-group">
+            <span class="entity-badge-ca">CA</span>
+            <span class="entity-name">Intermediate B Certificate</span>
+          </div>
+          <div class="entity-curve">Curve: <strong>__CA_CURVE__</strong></div>
+        </div>
+
+        <div class="entity-meta-row">
+          <div class="meta-box">
+            <div class="meta-label">Scalar 's'</div>
+            <div class="meta-val meta-val-ca">__CA_SCALAR_DISPLAY__</div>
+          </div>
+          <div class="meta-box">
+            <div class="meta-label">Signers / Roots</div>
+            <div class="meta-val" style="color: #e2e8f0;">__ROOTS_DETAIL__</div>
+          </div>
+        </div>
+
+        <div class="subject-box">
+          <div class="meta-label">Subject DN</div>
+          <div class="meta-val" style="color: #cbd5e1;">__CA_SUBJECT__</div>
+        </div>
       </div>
     </div>
 
@@ -675,6 +943,35 @@ sed -i "s|__SERVER_SUBJECT__|$SERVER_SUBJECT|g" "$HTML_OUTPUT_FILE"
 sed -i "s|__DOMAINS__|$DOMAINS|g" "$HTML_OUTPUT_FILE"
 sed -i "s|__IPS__|$IPS|g" "$HTML_OUTPUT_FILE"
 sed -i "s|__CHAIN_MODE__|$CHAIN_MODE|g" "$HTML_OUTPUT_FILE"
+if [ -n "$ROOTS_INPUT" ]; then
+    ROOTS_SUMMARY="$ROOTS_INPUT"
+    if [ -n "$ROOT_S_BYTES_INPUT" ]; then
+        ROOTS_DETAIL=""
+        IFS=',' read -ra R_NAMES <<< "$ROOTS_INPUT"
+        IFS=',' read -ra R_SCALARS <<< "$ROOT_S_BYTES_INPUT"
+        for idx in "${!R_NAMES[@]}"; do
+            rn=$(echo "${R_NAMES[$idx]}" | tr -d ' ')
+            rs=$(echo "${R_SCALARS[$idx]:-}" | tr -d ' ')
+            [ -n "$rs" ] && rs=$(unpad_hex "$rs")
+            if [ -n "$ROOTS_DETAIL" ]; then
+                ROOTS_DETAIL="$ROOTS_DETAIL, "
+            fi
+            ROOTS_DETAIL="${ROOTS_DETAIL}${rn} (${rs})"
+        done
+        ROOTS_SUMMARY="$ROOTS_DETAIL"
+    else
+        ROOTS_DETAIL="$ROOTS_INPUT"
+        ROOTS_SUMMARY="$ROOTS_INPUT"
+    fi
+else
+    ROOTS_SUMMARY="None"
+    ROOTS_DETAIL="Self-Signed Root"
+fi
+
+sed -i "s|__ROOTS_SUMMARY__|$ROOTS_SUMMARY|g" "$HTML_OUTPUT_FILE"
+sed -i "s|__ROOTS_DETAIL__|$ROOTS_DETAIL|g" "$HTML_OUTPUT_FILE"
+sed -i "s|__SERVER_SCALAR_DISPLAY__|$SERVER_SCALAR_DISPLAY|g" "$HTML_OUTPUT_FILE"
+sed -i "s|__CA_SCALAR_DISPLAY__|$CA_SCALAR_DISPLAY|g" "$HTML_OUTPUT_FILE"
 
 # Append recorded commands
 step_num=1
@@ -705,6 +1002,44 @@ EOF
 EOF
     step_num=$((step_num + 1))
 done
+
+# Append Multi-Chain Endpoints Info to HTML
+cat >> "$HTML_OUTPUT_FILE" <<EOF
+    <div class="section-title">Multi-Chain Endpoints & Ingress Routes</div>
+    <div class="step-box">
+      <div class="step-header"><span>Dedicated Chain Endpoints</span></div>
+      <div class="step-body">
+        <pre><span class="cmd-line"># Primary Endpoint (Default Browser / Web UI)</span>
+Host: $(echo "$DOMAINS" | cut -d',' -f1):$PORT
+Chain Mode: $CHAIN_MODE
+EOF
+
+if [ -d "$SERVE_DIR/chains" ]; then
+    for cf in "$SERVE_DIR/chains"/c*.pem; do
+        [ -f "$cf" ] || continue
+        cb=$(basename "$cf" .pem)
+        cat >> "$HTML_OUTPUT_FILE" <<EOF
+
+<span class="cmd-line"># Endpoint: Chain '$cb' (Dedicated Pod & Ingress)</span>
+Domain: ${cb}-$(echo "$DOMAINS" | cut -d',' -f1)
+openssl s_client -connect ${cb}-$(echo "$DOMAINS" | cut -d',' -f1):8443 -showcerts
+EOF
+    done
+    if [ -f "$SERVE_DIR/chains/all.pem" ]; then
+        cat >> "$HTML_OUTPUT_FILE" <<EOF
+
+<span class="cmd-line"># Endpoint: Combined Chain 'all' (Dedicated Pod & Ingress)</span>
+Domain: all-$(echo "$DOMAINS" | cut -d',' -f1)
+openssl s_client -connect all-$(echo "$DOMAINS" | cut -d',' -f1):8443 -showcerts
+EOF
+    fi
+fi
+
+cat >> "$HTML_OUTPUT_FILE" <<EOF
+</pre>
+      </div>
+    </div>
+EOF
 
 cat >> "$HTML_OUTPUT_FILE" <<EOF
     <div class="section-title">Testing with Clients</div>
@@ -739,6 +1074,7 @@ cp "$COMMAND_LOG_FILE" "$SERVE_DIR/commands.txt" 2>/dev/null || true
 # ------------------------------------------------------------------------------
 echo "==================================================================="
 echo " Launching openssl s_server on port $PORT with -$WWW_MODE"
+echo " Active Chain Mode: $CHAIN_MODE"
 echo "==================================================================="
 
 CERT_FILE="$SERVE_DIR/server.crt.pem"

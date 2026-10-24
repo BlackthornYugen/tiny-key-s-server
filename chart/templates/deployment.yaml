@@ -30,6 +30,7 @@ spec:
             scheme: {{ .Values.probes.liveness.scheme | default "HTTPS" }}
           initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds | default 5 }}
           periodSeconds: {{ .Values.probes.liveness.periodSeconds | default 10 }}
+          timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds | default 3 }}
         {{- end }}
         {{- if .Values.probes.readiness.enabled }}
         readinessProbe:
@@ -39,6 +40,7 @@ spec:
             scheme: {{ .Values.probes.readiness.scheme | default "HTTPS" }}
           initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds | default 3 }}
           periodSeconds: {{ .Values.probes.readiness.periodSeconds | default 5 }}
+          timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds | default 3 }}
         {{- end }}
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
@@ -49,14 +51,111 @@ spec:
         - name: {{ $key }}
           value: {{ $val | quote }}
         {{- end }}
-        {{- if .Values.persistence.enabled }}
+        {{- if or .Values.persistence.enabled (and .Values.mitmproxy.enabled (not .Values.mitmproxy.customCa.enabled)) }}
         volumeMounts:
+        {{- if .Values.persistence.enabled }}
         - name: certs
           mountPath: {{ .Values.persistence.mountPath | default "/certs" }}
         {{- end }}
-      {{- if .Values.persistence.enabled }}
+        {{- if and .Values.mitmproxy.enabled (not .Values.mitmproxy.customCa.enabled) }}
+        - name: shared-srv
+          mountPath: /srv/www
+        {{- end }}
+        {{- end }}
+      {{- if .Values.mitmproxy.enabled }}
+      - name: mitmproxy
+        image: "{{ .Values.mitmproxy.image.repository }}:{{ .Values.mitmproxy.image.tag | default "latest" }}"
+        imagePullPolicy: {{ .Values.mitmproxy.image.pullPolicy | default "IfNotPresent" }}
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            mkdir -p /home/mitmproxy/.mitmproxy
+            {{- if .Values.mitmproxy.customCa.enabled }}
+            echo "Loading custom CA / cross-signed chain from secret..."
+            cp /custom-ca/mitmproxy-ca.pem /home/mitmproxy/.mitmproxy/mitmproxy-ca.pem
+            {{- else }}
+            echo "Waiting for s-server CA certificates..."
+            while [ ! -f /srv/www/ca.key.pem ] || [ ! -f /srv/www/ca.crt.pem ]; do
+              sleep 1
+            done
+            {{- $targetChain := .Values.mitmproxy.serverCa.chainMode | default "default" }}
+            {{- if eq $targetChain "default" }}
+            cat /srv/www/ca.key.pem /srv/www/ca.crt.pem > /home/mitmproxy/.mitmproxy/mitmproxy-ca.pem
+            {{- else if eq $targetChain "chain" }}
+            while [ ! -f /srv/www/chain.pem ]; do sleep 1; done
+            cat /srv/www/ca.key.pem /srv/www/chain.pem > /home/mitmproxy/.mitmproxy/mitmproxy-ca.pem
+            {{- else if eq $targetChain "all" }}
+            while [ ! -f /srv/www/chain.pem ]; do sleep 1; done
+            if ls /srv/www/chains/*.pem >/dev/null 2>&1; then
+              cat /srv/www/ca.key.pem /srv/www/chains/*.pem > /home/mitmproxy/.mitmproxy/mitmproxy-ca.pem
+            else
+              cat /srv/www/ca.key.pem /srv/www/chain.pem > /home/mitmproxy/.mitmproxy/mitmproxy-ca.pem
+            fi
+            {{- else }}
+            while [ ! -f /srv/www/chain.pem ]; do sleep 1; done
+            if [ -f "/srv/www/chains/{{ $targetChain }}.pem" ]; then
+              cat /srv/www/ca.key.pem "/srv/www/chains/{{ $targetChain }}.pem" > /home/mitmproxy/.mitmproxy/mitmproxy-ca.pem
+            else
+              cat /srv/www/ca.key.pem /srv/www/chain.pem > /home/mitmproxy/.mitmproxy/mitmproxy-ca.pem
+            fi
+            {{- end }}
+            {{- end }}
+            chmod 600 /home/mitmproxy/.mitmproxy/mitmproxy-ca.pem
+            echo "CA bundle ready for mitmproxy:"
+            ls -la /home/mitmproxy/.mitmproxy/mitmproxy-ca.pem
+            exec {{ .Values.mitmproxy.mode | default "mitmweb" }} \
+              --web-host 0.0.0.0 \
+              --set block_global=false \
+              {{- if .Values.mitmproxy.webPassword }}
+              --set web_password={{ .Values.mitmproxy.webPassword | quote }} \
+              {{- end }}
+              {{- if .Values.mitmproxy.proxyAuth }}
+              --set proxyauth={{ .Values.mitmproxy.proxyAuth | quote }} \
+              {{- end }}
+              {{- range .Values.mitmproxy.extraArgs }}
+              {{ . | quote }} \
+              {{- end }}
+        env:
+          - name: PYTHONUNBUFFERED
+            value: "1"
+        ports:
+          - name: mitmproxy
+            containerPort: {{ .Values.mitmproxy.service.proxyPort | default 8080 }}
+          - name: mitmweb
+            containerPort: {{ .Values.mitmproxy.service.webPort | default 8081 }}
+        resources:
+          {{- toYaml .Values.mitmproxy.resources | nindent 10 }}
+        volumeMounts:
+          - name: mitmproxy-conf
+            mountPath: /home/mitmproxy/.mitmproxy
+          {{- if .Values.mitmproxy.customCa.enabled }}
+          - name: custom-ca-volume
+            mountPath: /custom-ca
+            readOnly: true
+          {{- else }}
+          - name: shared-srv
+            mountPath: /srv/www
+            readOnly: true
+          {{- end }}
+      {{- end }}
+      {{- if or .Values.persistence.enabled .Values.mitmproxy.enabled }}
       volumes:
+      {{- if .Values.persistence.enabled }}
       - name: certs
         persistentVolumeClaim:
           claimName: {{ .Values.persistence.existingClaim | default (printf "%s-certs" .Release.Name) }}
+      {{- end }}
+      {{- if .Values.mitmproxy.enabled }}
+      - name: mitmproxy-conf
+        emptyDir: {}
+      {{- if .Values.mitmproxy.customCa.enabled }}
+      - name: custom-ca-volume
+        secret:
+          secretName: {{ .Values.mitmproxy.customCa.existingSecret | default (printf "%s-mitmproxy-ca" .Release.Name) }}
+      {{- else }}
+      - name: shared-srv
+        emptyDir: {}
+      {{- end }}
+      {{- end }}
       {{- end }}

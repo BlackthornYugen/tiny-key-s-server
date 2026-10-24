@@ -1,0 +1,23 @@
+{{- $extraChains := include "tiny-key-s-server.extraChains" . | fromJsonArray -}}
+{{- if $extraChains -}}
+{{- range $chain := $extraChains }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $.Release.Name }}-chain-{{ $chain }}
+  labels:
+    app: {{ $.Release.Name }}-chain-{{ $chain }}
+    release: {{ $.Release.Name }}
+    chain: {{ $chain | quote }}
+spec:
+  type: {{ $.Values.service.type | default "ClusterIP" }}
+  ports:
+  - port: {{ $.Values.service.port | default 443 }}
+    targetPort: {{ $.Values.service.targetPort | default 4433 }}
+    protocol: TCP
+    name: https
+  selector:
+    app: {{ $.Release.Name }}-chain-{{ $chain }}
+{{- end }}
+{{- end }}
