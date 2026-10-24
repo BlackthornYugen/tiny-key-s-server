@@ -1,0 +1,8 @@
+# Python bytecode and temporary caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.swp
+*.swo
+*.tmp
+.DS_Store
