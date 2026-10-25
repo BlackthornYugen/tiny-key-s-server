@@ -110,15 +110,6 @@ Executes automated health checks against the preview domains:
 ./scripts/test_endpoints.sh 2
 ```
 
----
-
-### 7. `clean_legacy_gitea.sh`
-Removes orphaned legacy main resources (`Deployment`, `Service`, `Ingress`) from namespace `gitea` after migrating to namespace `tiny-key-s-server`.
-
-**Usage:**
-```bash
-./scripts/clean_legacy_gitea.sh
-```
 
 ---
 
