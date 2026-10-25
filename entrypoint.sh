@@ -248,13 +248,11 @@ EOF"
         run_recorded "Encode CA EC Private Key DER from scalar ASN.1" "openssl asn1parse \\
   -genconf '$CA_ASN1_CNF' \\
   -out '$SERVE_DIR/ca_raw.der'"
-        run_recorded "Package CA EC Private Key to PEM" "tee '$SERVE_DIR/ca.key.pem' << EOF
------BEGIN EC PRIVATE KEY-----
-\$(openssl base64 -in '$SERVE_DIR/ca_raw.der')
------END EC PRIVATE KEY-----
-EOF"
+        run_recorded "Convert CA EC Private Key DER to PEM with text format" "openssl ec \\
+  -inform DER \\
+  -in '$SERVE_DIR/ca_raw.der' \\
+  -text | tee '$SERVE_DIR/ca.key.pem'"
         rm -f "$SERVE_DIR/ca_raw.der"
-        run_recorded "Inspect CA EC Private Key (shows exact scalar hex in priv:)" "openssl ec -in '$SERVE_DIR/ca.key.pem' -text -noout"
         
         # 2. Generate Server Private Key from scalar ASN.1
         SERVER_ASN1_CNF="$SERVE_DIR/asn1_server.cnf"
@@ -269,13 +267,11 @@ EOF"
         run_recorded "Encode Server EC Private Key DER from scalar ASN.1" "openssl asn1parse \\
   -genconf '$SERVER_ASN1_CNF' \\
   -out '$SERVE_DIR/server_raw.der'"
-        run_recorded "Package Server EC Private Key to PEM" "tee '$SERVE_DIR/server.key.pem' << EOF
------BEGIN EC PRIVATE KEY-----
-\$(openssl base64 -in '$SERVE_DIR/server_raw.der')
------END EC PRIVATE KEY-----
-EOF"
+        run_recorded "Convert Server EC Private Key DER to PEM with text format" "openssl ec \\
+  -inform DER \\
+  -in '$SERVE_DIR/server_raw.der' \\
+  -text | tee '$SERVE_DIR/server.key.pem'"
         rm -f "$SERVE_DIR/server_raw.der"
-        run_recorded "Inspect Server EC Private Key (shows exact scalar hex in priv:)" "openssl ec -in '$SERVE_DIR/server.key.pem' -text -noout"
     else
         # Fallback: Generate keys using OpenSSL PRNG
         echo ">> Generating EC keys using OpenSSL PRNG"
@@ -426,11 +422,10 @@ EOF"
             run_recorded "Encode Root CA '$r_name' DER from scalar $r_scalar" "openssl asn1parse \\
   -genconf '$r_asn' \\
   -out '$SERVE_DIR/roots/${r_name}.der'"
-            run_recorded "Package Root CA '$r_name' EC Private Key to PEM" "tee '$r_key' << EOF
------BEGIN EC PRIVATE KEY-----
-\$(openssl base64 -in '$SERVE_DIR/roots/${r_name}.der')
------END EC PRIVATE KEY-----
-EOF"
+            run_recorded "Convert Root CA '$r_name' EC Private Key DER to PEM with text format" "openssl ec \\
+  -inform DER \\
+  -in '$SERVE_DIR/roots/${r_name}.der' \\
+  -text | tee '$r_key'"
             rm -f "$SERVE_DIR/roots/${r_name}.der"
 
             # Generate Self-Signed Root Certificate
