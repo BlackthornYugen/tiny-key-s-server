@@ -41,6 +41,10 @@ echo "--> 8. Running test_multi_port_server.sh..."
 "$SCRIPT_DIR/test_multi_port_server.sh"
 
 echo ""
+echo "--> 9. Running test_mitm_cross_sign.sh..."
+"$SCRIPT_DIR/test_mitm_cross_sign.sh"
+
+echo ""
 echo "=========================================================="
 echo " ALL TEST SUITES PASSED SUCCESSFULLY!"
 echo "=========================================================="

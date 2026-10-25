@@ -230,7 +230,7 @@ When mitmproxy intercepts TLS connections, it acts as a dynamic Certificate Auth
      If `mitmproxy-ca.pem` contains key $b$ followed by *both* intermediate certificates ($b_{c1}$ and $b_{c2}$), modern TLS clients (OpenSSL 1.1.1+, BoringSSL, Go `crypto/tls`, NSS, and Apple SecureTransport) perform graph-based certificate path exploration. Clients trusting either $c_1$ OR $c_2$ will find a valid path to their trusted anchor from the presented certificates.
 
 #### mitmproxy CA Bundle Format (`mitmproxy-ca.pem`)
-mitmproxy expects the private key and intermediate/chain certificates concatenated into a single PEM file:
+mitmproxy expects exactly **one private key** followed by the intermediate and chain/cross-signed certificates concatenated into a single PEM file:
 
 ```text
 -----BEGIN EC PRIVATE KEY-----
@@ -240,9 +240,15 @@ mitmproxy expects the private key and intermediate/chain certificates concatenat
 <Intermediate CA Certificate (e.g. b_c1)>
 -----END CERTIFICATE-----
 -----BEGIN CERTIFICATE-----
-<Cross-Signed Certificate or Parent CA (e.g. b_c2 or Root c1)>
+<Cross-Signed Certificate or Parent CA (e.g. b_c2 or c1_c2)>
 -----END CERTIFICATE-----
 ```
+
+> [!IMPORTANT]
+> **Private Key Invariance in Cross-Signing**:
+> For cross-signed certificates, the private key **must not change**.
+> By definition, cross-signing binds the **exact same public key** (and Subject DN) to multiple parent issuers (e.g., modern Root $c_1$ and legacy Root $c_2$).
+> Because mitmproxy uses this private key to dynamically sign all generated leaf certificates on the fly, having different keys would break path validation for one of the roots. The CA bundle must contain only **one** private key matching the public key present in all intermediate certificates.
 
 ---
 
