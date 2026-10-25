@@ -81,12 +81,19 @@ spec:
           - |
             set -eu
             mkdir -p /home/mitmproxy/.mitmproxy
+            while [ ! -f /srv/www/ca.key.pem ]; do
+              sleep 1
+            done
             {{- if .Values.mitmproxy.customCa.enabled }}
-            echo "Loading custom CA / cross-signed chain from secret..."
-            cp /custom-ca/mitmproxy-ca.pem /home/mitmproxy/.mitmproxy/mitmproxy-ca.pem
+            echo "Loading sideloaded cert chain with server CA key..."
+            if grep -q "PRIVATE KEY" /custom-ca/mitmproxy-ca.pem 2>/dev/null; then
+              cp /custom-ca/mitmproxy-ca.pem /home/mitmproxy/.mitmproxy/mitmproxy-ca.pem
+            else
+              cat /srv/www/ca.key.pem /custom-ca/mitmproxy-ca.pem > /home/mitmproxy/.mitmproxy/mitmproxy-ca.pem
+            fi
             {{- else }}
             echo "Waiting for s-server CA certificates..."
-            while [ ! -f /srv/www/ca.key.pem ] || [ ! -f /srv/www/ca.crt.pem ]; do
+            while [ ! -f /srv/www/ca.crt.pem ]; do
               sleep 1
             done
             {{- $targetChain := .Values.mitmproxy.serverCa.chainMode | default "default" }}
@@ -116,6 +123,7 @@ spec:
             ls -la /home/mitmproxy/.mitmproxy/mitmproxy-ca.pem
             exec {{ .Values.mitmproxy.mode | default "mitmweb" }} \
               --web-host 0.0.0.0 \
+              --set confdir=/home/mitmproxy/.mitmproxy \
               --set block_global=false \
               {{- if .Values.mitmproxy.webPassword }}
               --set web_password={{ .Values.mitmproxy.webPassword | quote }} \
@@ -139,13 +147,12 @@ spec:
         volumeMounts:
           - name: mitmproxy-conf
             mountPath: /home/mitmproxy/.mitmproxy
+          - name: shared-srv
+            mountPath: /srv/www
+            readOnly: true
           {{- if .Values.mitmproxy.customCa.enabled }}
           - name: custom-ca-volume
             mountPath: /custom-ca
-            readOnly: true
-          {{- else }}
-          - name: shared-srv
-            mountPath: /srv/www
             readOnly: true
           {{- end }}
       {{- end }}
