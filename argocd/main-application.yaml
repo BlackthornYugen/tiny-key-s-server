@@ -16,8 +16,10 @@ spec:
         - name: image.pullPolicy
           value: Always
       valuesObject:
+        publicPort: 8443
         ingress:
           enabled: true
+          publicPort: 8443
           hosts:
             - tiny-key-s-server.jskw.dev
             - tiny-key-s-server.jskw.ca

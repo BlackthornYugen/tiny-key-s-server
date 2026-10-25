@@ -11,13 +11,13 @@ service:
   port: 443
   targetPort: 4433
 
-# Default public access port (443 for standard HTTPS; set to 8443 for PR NodePort/HAProxy testing)
-publicPort: 443
+# Default public access port (8443 while HAProxy controller runs on port 8443)
+publicPort: 8443
 
 ingress:
   enabled: true
   className: "haproxy"
-  publicPort: 443
+  publicPort: 8443
   annotations:
     haproxy.org/server-ssl: "true"
     haproxy.org/ssl-passthrough: "false"
