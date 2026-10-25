@@ -48,6 +48,22 @@ else
     exit 1
 fi
 
+echo "Testing curl /commands.sh download and header..."
+CMD_RESP=$(curl -k -s https://127.0.0.1:4433/commands.sh)
+if echo "$CMD_RESP" | grep -q "https://github.com/BlackthornYugen/tiny-key-s-server"; then
+    echo "SUCCESS: Found GitHub repository URL in commands.sh header"
+else
+    echo "ERROR: Missing GitHub repository URL in commands.sh header"
+    exit 1
+fi
+
+if echo "$CMD_RESP" | grep -q "Webserver:  https://test1.local/"; then
+    echo "SUCCESS: Found Webserver URL in commands.sh header"
+else
+    echo "ERROR: Missing Webserver URL in commands.sh header"
+    exit 1
+fi
+
 echo "Testing curl /fullchain.pem download..."
 CHAIN_RESP=$(curl -k -s https://127.0.0.1:4433/fullchain.pem)
 if echo "$CHAIN_RESP" | grep -q "BEGIN CERTIFICATE"; then

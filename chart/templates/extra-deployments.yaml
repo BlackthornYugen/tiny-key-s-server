@@ -57,6 +57,8 @@ spec:
           value: {{ $.Values.service.targetPort | default 4433 | quote }}
         - name: PUBLIC_PORT
           value: {{ include "tiny-key-s-server.publicPort" $ | quote }}
+        - name: HELM_DEPLOYED
+          value: "true"
         - name: CHAIN_MODE
           value: {{ $chain | quote }}
         {{- if and $.Values.ingress.enabled $.Values.ingress.hosts }}

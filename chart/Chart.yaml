@@ -4,3 +4,6 @@ description: OpenSSL s_server testing tool for standard EC curves with small int
 type: application
 version: 0.2.0
 appVersion: "latest"
+home: https://github.com/BlackthornYugen/tiny-key-s-server
+sources:
+  - https://github.com/BlackthornYugen/tiny-key-s-server
