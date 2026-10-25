@@ -122,7 +122,7 @@ unpad_hex() {
 # ------------------------------------------------------------------------------
 # Logging & Command Tracking
 # ------------------------------------------------------------------------------
-COMMAND_LOG_FILE="$SERVE_DIR/commands.log"
+COMMAND_LOG_FILE="$SERVE_DIR/commands.sh"
 HTML_OUTPUT_FILE="$SERVE_DIR/index.html"
 cat > "$COMMAND_LOG_FILE" <<'EOF'
 #!/usr/bin/env bash
@@ -131,6 +131,7 @@ cat > "$COMMAND_LOG_FILE" <<'EOF'
 set -euo pipefail
 
 EOF
+chmod +x "$COMMAND_LOG_FILE"
 
 declare -a RECORDED_COMMANDS=()
 declare -a RECORDED_OUTPUTS=()
@@ -993,7 +994,7 @@ cat > "$HTML_OUTPUT_FILE" <<'HTML_HEADER'
       <a class="file-link" href="ca.crt.pem" download>&#128196; ca.crt.pem</a>
       <a class="file-link" href="server.csr.pem" download>&#128196; server.csr.pem</a>
       <a class="file-link" href="san.cnf" download>&#128196; san.cnf</a>
-      <a class="file-link" href="commands.log" download>&#128196; commands.log</a>
+      <a class="file-link" href="commands.sh" download>&#128196; commands.sh</a>
     </div>
 
     <div class="section-title">OpenSSL Commands Executed</div>
@@ -1148,8 +1149,9 @@ curl -k https://localhost:$PORT/index.html</pre>
 </html>
 EOF
 
-# Also create commands.txt and openssl.html for alternate file requests
+# Also create commands.log, commands.txt, and openssl.html for alternate file requests
 cp "$HTML_OUTPUT_FILE" "$SERVE_DIR/openssl.html"
+cp "$COMMAND_LOG_FILE" "$SERVE_DIR/commands.log" 2>/dev/null || true
 cp "$COMMAND_LOG_FILE" "$SERVE_DIR/commands.txt" 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
