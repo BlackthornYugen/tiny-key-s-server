@@ -119,6 +119,17 @@ unpad_hex() {
     echo "0x$unpadded"
 }
 
+get_subshell_pad_expr() {
+    local hex_clean="${1#0x}"
+    hex_clean="${hex_clean#0X}"
+    local target_chars="$2"
+    if [ ${#hex_clean} -gt 16 ]; then
+        echo "printf \"%${target_chars}s\" \"${hex_clean}\" | tr ' ' '0'"
+    else
+        echo "printf \"%0${target_chars}x\" 0x${hex_clean}"
+    fi
+}
+
 # ------------------------------------------------------------------------------
 # Logging & Command Tracking
 # ------------------------------------------------------------------------------
@@ -236,14 +247,19 @@ else
         echo "   Server Key scalar: 0x$SERVER_SCALAR ($SERVER_SCALAR_DISPLAY)"
         echo "   CA Key scalar:     0x$CA_SCALAR ($CA_SCALAR_DISPLAY)"
         
+        CA_HEX_LEN=$(( CA_BYTES_LEN * 2 ))
+        SERVER_HEX_LEN=$(( SERVER_BYTES_LEN * 2 ))
+        CA_PAD_EXPR=$(get_subshell_pad_expr "$CA_SCALAR_DISPLAY" "$CA_HEX_LEN")
+        SERVER_PAD_EXPR=$(get_subshell_pad_expr "$SERVER_SCALAR_DISPLAY" "$SERVER_HEX_LEN")
+
         # 1. Generate CA Private Key from scalar ASN.1
         CA_ASN1_CNF="$SERVE_DIR/asn1_ca.cnf"
-        run_recorded "Create CA EC Private Key ASN.1 Configuration" "tee '$CA_ASN1_CNF' << 'EOF'
+        run_recorded "Create CA EC Private Key ASN.1 Configuration" "tee '$CA_ASN1_CNF' << EOF
 asn1 = SEQUENCE:ec_key
 
 [ec_key]
 version = INTEGER:1
-privkey = FORMAT:HEX,OCTETSTRING:$CA_SCALAR
+privkey = FORMAT:HEX,OCTETSTRING:\$($CA_PAD_EXPR)
 params = EXPLICIT:0,OBJECT:$CA_CURVE
 EOF"
         run_recorded "Encode CA EC Private Key DER from scalar ASN.1" "openssl asn1parse \\
@@ -257,12 +273,12 @@ EOF"
         
         # 2. Generate Server Private Key from scalar ASN.1
         SERVER_ASN1_CNF="$SERVE_DIR/asn1_server.cnf"
-        run_recorded "Create Server EC Private Key ASN.1 Configuration" "tee '$SERVER_ASN1_CNF' << 'EOF'
+        run_recorded "Create Server EC Private Key ASN.1 Configuration" "tee '$SERVER_ASN1_CNF' << EOF
 asn1 = SEQUENCE:ec_key
 
 [ec_key]
 version = INTEGER:1
-privkey = FORMAT:HEX,OCTETSTRING:$SERVER_SCALAR
+privkey = FORMAT:HEX,OCTETSTRING:\$($SERVER_PAD_EXPR)
 params = EXPLICIT:0,OBJECT:$SERVER_CURVE
 EOF"
         run_recorded "Encode Server EC Private Key DER from scalar ASN.1" "openssl asn1parse \\
@@ -412,12 +428,14 @@ EOF"
 
             # ASN.1 key configuration
             r_asn="$SERVE_DIR/roots/asn_${r_name}.cnf"
-            run_recorded "Create Root CA '$r_name' EC Private Key ASN.1 Configuration" "tee '$r_asn' << 'EOF'
+            r_hex_len=$(( $(get_curve_bytes "$CA_CURVE") * 2 ))
+            r_pad_expr=$(get_subshell_pad_expr "$r_scalar" "$r_hex_len")
+            run_recorded "Create Root CA '$r_name' EC Private Key ASN.1 Configuration" "tee '$r_asn' << EOF
 asn1 = SEQUENCE:ec_key
 
 [ec_key]
 version = INTEGER:1
-privkey = FORMAT:HEX,OCTETSTRING:$r_scalar_formatted
+privkey = FORMAT:HEX,OCTETSTRING:\$($r_pad_expr)
 params = EXPLICIT:0,OBJECT:$CA_CURVE
 EOF"
             run_recorded "Encode Root CA '$r_name' DER from scalar $r_scalar" "openssl asn1parse \\
