@@ -2,11 +2,8 @@
 set -euo pipefail
 
 # Utility script to sync Gitea main branch to GitHub main branch and reconcile shadow PRs.
-# Usage:
-#   ./scripts/sync_mirror.sh
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT_DIR="${PROJECT_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 
 cd "$ROOT_DIR"
 
@@ -18,11 +15,35 @@ if [ -f .env ]; then
 fi
 
 BRANCH="${1:-main}"
-GITEA_REMOTE_URL="https://${GITEA_USER}:${GITEA_TOKEN}@git.tower.jskw.dev/webapps/tiny-key-s-server.git"
-GITHUB_REPO="BlackthornYugen/tiny-key-s-server"
+
+# Determine Gitea remote URL & API endpoint
+ORIGIN_URL="$(git remote get-url origin 2>/dev/null || echo "")"
+if [ -n "${GITEA_REMOTE_URL:-}" ]; then
+  TARGET_GITEA_URL="$GITEA_REMOTE_URL"
+elif [ -n "${GITEA_USER:-}" ] && [ -n "${GITEA_TOKEN:-}" ]; then
+  CLEAN_URL="$(echo "$ORIGIN_URL" | sed -E 's|^https?://([^@]+@)?||')"
+  if [ -n "$CLEAN_URL" ]; then
+    TARGET_GITEA_URL="https://${GITEA_USER}:${GITEA_TOKEN}@${CLEAN_URL}"
+  else
+    TARGET_GITEA_URL="origin"
+  fi
+else
+  TARGET_GITEA_URL="origin"
+fi
+
+# Detect Gitea API URL from origin
+GITEA_HOST="$(echo "$ORIGIN_URL" | sed -E 's|^https?://([^@]+@)?([^/]+)/.*|\2|')"
+GITEA_PATH="$(echo "$ORIGIN_URL" | sed -E 's|^https?://([^@]+@)?[^/]+/([^.]+)(\.git)?|\2|')"
+DETECTED_GITEA_API="https://${GITEA_HOST}/api/v1/repos/${GITEA_PATH}"
+GITEA_API="${GITEA_API_URL:-$DETECTED_GITEA_API}"
+
+# Detect GitHub repo owner/name from gh remote
+GH_URL="$(git remote get-url gh 2>/dev/null || echo "")"
+DETECTED_GH_REPO="$(echo "$GH_URL" | sed -E 's|.*github\.com[:/]([^/]+/[^/.]+)(\.git)?|\1|')"
+GH_REPO="${GITHUB_REPO:-$DETECTED_GH_REPO}"
 
 echo "=== 1. Fetching latest '${BRANCH}' from Gitea (origin) ==="
-git fetch "${GITEA_REMOTE_URL}" "${BRANCH}:${BRANCH}" --update-head-ok
+git fetch "${TARGET_GITEA_URL}" "${BRANCH}:${BRANCH}" --update-head-ok
 
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 if [ "$CURRENT_BRANCH" = "$BRANCH" ]; then
@@ -36,20 +57,22 @@ echo -e "\n=== 2. Pushing '${BRANCH}' to GitHub (gh) ==="
 git push gh "${BRANCH}"
 echo "Successfully synchronized '${BRANCH}' to GitHub!"
 
-if command -v gh >/dev/null 2>&1; then
-  echo -e "\n=== 3. Reconciling GitHub Pull Requests ==="
-  python3 - <<'EOF'
+if [ -n "$GH_REPO" ] && command -v gh >/dev/null 2>&1; then
+  echo -e "\n=== 3. Reconciling GitHub Pull Requests (${GH_REPO}) ==="
+  python3 - <<EOF
 import json
 import subprocess
 import urllib.request
 import os
 
-repo = "BlackthornYugen/tiny-key-s-server"
+repo = "${GH_REPO}"
+gitea_api = "${GITEA_API}"
+token = os.environ.get("GITEA_TOKEN", "")
+
 try:
     main_sha = subprocess.check_output(["git", "rev-parse", "main"], text=True).strip()
 except Exception:
     main_sha = ""
-token = os.environ.get("GITEA_TOKEN", "")
 
 # 1. Fetch open PRs on GitHub
 try:
@@ -69,7 +92,7 @@ else:
     gitea_merged = {}
     try:
         req = urllib.request.Request(
-            "https://git.tower.jskw.dev/api/v1/repos/webapps/tiny-key-s-server/pulls?state=closed",
+            f"{gitea_api}/pulls?state=closed",
             headers={"Authorization": f"token {token}", "Accept": "application/json"}
         )
         with urllib.request.urlopen(req) as resp:
@@ -103,8 +126,8 @@ else:
         if merged_sha:
             commit_url = f"https://github.com/{repo}/commit/{merged_sha}"
             close_comment = (
-                f"Merged upstream in Gitea commit [`{merged_sha[:8]}`]({commit_url}).\n\n"
-                f"This pull request has been automatically closed because the underlying changes were merged into `main`."
+                f"Merged upstream in Gitea commit [\`{merged_sha[:8]}\`]({commit_url}).\n\n"
+                f"This pull request has been automatically closed because the underlying changes were merged into \`main\`."
             )
             print(f"Closing GitHub PR #{pr_num} (branch '{branch}') merged in commit {merged_sha[:8]}...")
             try:

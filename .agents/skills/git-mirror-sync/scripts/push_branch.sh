@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Source environment variables for Gitea authentication
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT_DIR="${PROJECT_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 
 cd "$ROOT_DIR"
 
@@ -38,11 +37,25 @@ if [ -z "$BRANCH" ]; then
   BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 fi
 
-GITEA_REMOTE_URL="https://${GITEA_USER}:${GITEA_TOKEN}@git.tower.jskw.dev/webapps/tiny-key-s-server.git"
+# Determine Gitea remote URL:
+# If GITEA_USER & GITEA_TOKEN are present, embed them into the origin remote URL
+if [ -n "${GITEA_REMOTE_URL:-}" ]; then
+  TARGET_GITEA_URL="$GITEA_REMOTE_URL"
+elif [ -n "${GITEA_USER:-}" ] && [ -n "${GITEA_TOKEN:-}" ]; then
+  ORIGIN_URL="$(git remote get-url origin 2>/dev/null || echo "")"
+  CLEAN_URL="$(echo "$ORIGIN_URL" | sed -E 's|^https?://([^@]+@)?||')"
+  if [ -n "$CLEAN_URL" ]; then
+    TARGET_GITEA_URL="https://${GITEA_USER}:${GITEA_TOKEN}@${CLEAN_URL}"
+  else
+    TARGET_GITEA_URL="origin"
+  fi
+else
+  TARGET_GITEA_URL="origin"
+fi
 
 echo "=== Pushing branch '${BRANCH}' to Gitea (origin) ==="
 # shellcheck disable=SC2086
-git push ${FORCE_FLAG} "${GITEA_REMOTE_URL}" "${BRANCH}"
+git push ${FORCE_FLAG} "${TARGET_GITEA_URL}" "${BRANCH}"
 echo "Successfully pushed to Gitea!"
 
 if [ "$PUSH_GITHUB" = true ]; then

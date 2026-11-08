@@ -5,7 +5,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT_DIR="${PROJECT_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 
 if [ $# -lt 1 ]; then
   echo "Usage: $0 <PR_NUMBER> [disable|enable|status]"
@@ -18,9 +18,19 @@ fi
 
 PR_NUM="$1"
 ACTION="${2:-toggle}"
-APP_NAME="tiny-key-s-server-pr-${PR_NUM}"
-APP_SET="tiny-key-s-server-prs"
-NAMESPACE="argocd"
+
+# Auto-detect base application name: env var -> chart/Chart.yaml -> repository folder name
+if [ -n "${APP_BASE_NAME:-}" ]; then
+  BASE_NAME="$APP_BASE_NAME"
+elif [ -f "${ROOT_DIR}/chart/Chart.yaml" ] && grep -q "^name:" "${ROOT_DIR}/chart/Chart.yaml"; then
+  BASE_NAME="$(grep "^name:" "${ROOT_DIR}/chart/Chart.yaml" | head -n1 | awk '{print $2}' | tr -d '"'\''')"
+else
+  BASE_NAME="$(basename "$(git -C "$ROOT_DIR" rev-parse --show-toplevel 2>/dev/null || pwd)")"
+fi
+
+APP_NAME="${BASE_NAME}-pr-${PR_NUM}"
+APP_SET="${BASE_NAME}-prs"
+NAMESPACE="${ARGOCD_NAMESPACE:-argocd}"
 
 # Verify kubectl connection and application existence
 if ! kubectl get application "${APP_NAME}" -n "${NAMESPACE}" >/dev/null 2>&1; then
@@ -48,7 +58,7 @@ ensure_appset_ignore_differences() {
 }
 
 get_target_namespace() {
-  kubectl get application "${APP_NAME}" -n "${NAMESPACE}" -o jsonpath='{.spec.destination.namespace}' 2>/dev/null || echo "tiny-key-s-server-pr-${PR_NUM}"
+  kubectl get application "${APP_NAME}" -n "${NAMESPACE}" -o jsonpath='{.spec.destination.namespace}' 2>/dev/null || echo "${BASE_NAME}-pr-${PR_NUM}"
 }
 
 init_helm_release_record() {
@@ -119,7 +129,6 @@ case "$ACTION" in
     echo " Existing parameters adopted into Helm. You can now run clean upgrade commands:"
     echo ""
     echo "   helm upgrade ${APP_NAME} ./chart -n ${target_ns} --reuse-values --set mitmproxy.enabled=true"
-    echo "   helm upgrade ${APP_NAME} ./chart -n ${target_ns} --reuse-values --set mitmproxy.serverCa.chainMode=c1"
     echo "=========================================================================================="
     ;;
   enable)
