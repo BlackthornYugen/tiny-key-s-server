@@ -117,16 +117,16 @@ mitmproxy:
     # "c1", "c2" -> ca.key.pem + chains/c1.pem, etc.
     # "all"      -> ca.key.pem + chains/*.pem (all cross-signed paths bundled)
     chainMode: "default"
-  # Provide custom CA and cross-signed chains directly in values
+  # Sideload custom CA and cross-signed certificate chains directly in values
   customCa:
     enabled: false
-    # Existing Secret name containing 'mitmproxy-ca.pem' (overrides key/cert/chain below if set)
+    # Existing Secret name containing 'mitmproxy-ca.pem' (overrides cert/chain below if set)
     existingSecret: ""
     # Or assemble a custom Secret from inline PEM blocks:
-    # Complete combined PEM containing private key and full chain:
-    rawPem: ""
-    # Or broken down into separate components:
-    key: ""   # Intermediate CA private key (PEM format)
-    cert: ""  # Intermediate CA certificate (PEM format)
-    chain: "" # Cross-signed parent/intermediate certificates or root (PEM format)
+    # If key is omitted, the intermediate CA key is automatically inherited from s-server (scalar CA_S_BYTES),
+    # preserving private key invariance across cross-signed certificates.
+    rawPem: "" # Full chain or complete PEM bundle
+    key: ""    # Optional intermediate CA private key (PEM format, omitted when using CA_S_BYTES)
+    cert: ""   # Sideloaded intermediate CA certificate (PEM format, matching key public key)
+    chain: ""  # Sideloaded cross-signed parent/intermediate certificates or root (PEM format)
 
